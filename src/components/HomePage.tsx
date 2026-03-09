@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Bus, MapPin, Clock, Bell, Shield, Smartphone, Users, Zap } from "lucide-react";
+import { Bus, MapPin, Clock, Bell, Shield, Smartphone, Users, Zap, BarChart3, Trophy, Navigation, Rocket } from "lucide-react";
 import heroBusImage from "@/assets/hero-bus.jpg";
 
 interface HomePageProps {
@@ -74,24 +74,102 @@ const HomePage = ({ onViewChange }: HomePageProps) => {
                 </p>
               </div>
               
-              <div className="flex flex-col sm:flex-row gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <Button 
                   variant="hero" 
                   size="lg"
                   onClick={() => onViewChange("student")}
-                  className="text-lg px-8 py-6"
+                  className="text-lg px-8 py-6 h-auto flex-col gap-2"
                 >
-                  <MapPin className="h-5 w-5" />
-                  Track My Bus
+                  <MapPin className="h-6 w-6" />
+                  <div>
+                    <div className="font-semibold">Track My Bus</div>
+                    <div className="text-sm opacity-80">Real-time tracking</div>
+                  </div>
                 </Button>
                 <Button 
                   variant="outline" 
                   size="lg"
                   onClick={() => onViewChange("admin")}
-                  className="text-lg px-8 py-6"
+                  className="text-lg px-8 py-6 h-auto flex-col gap-2"
                 >
-                  <Shield className="h-5 w-5" />
-                  Admin Dashboard
+                  <Shield className="h-6 w-6" />
+                  <div>
+                    <div className="font-semibold">Admin Dashboard</div>
+                    <div className="text-sm opacity-80">Management tools</div>
+                  </div>
+                </Button>
+                <Button 
+                  variant="secondary" 
+                  size="lg"
+                  onClick={() => onViewChange("test")}
+                  className="text-lg px-8 py-6 h-auto flex-col gap-2"
+                >
+                  <MapPin className="h-6 w-6" />
+                  <div>
+                    <div className="font-semibold">Test Mapbox</div>
+                    <div className="text-sm opacity-80">Interactive map</div>
+                  </div>
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="lg"
+                  onClick={() => onViewChange("analytics")}
+                  className="text-lg px-8 py-6 h-auto flex-col gap-2"
+                >
+                  <BarChart3 className="h-6 w-6" />
+                  <div>
+                    <div className="font-semibold">AI Analytics</div>
+                    <div className="text-sm opacity-80">Smart insights</div>
+                  </div>
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="lg"
+                  onClick={() => onViewChange("gamification")}
+                  className="text-lg px-8 py-6 h-auto flex-col gap-2"
+                >
+                  <Trophy className="h-6 w-6" />
+                  <div>
+                    <div className="font-semibold">Gamification</div>
+                    <div className="text-sm opacity-80">Earn rewards</div>
+                  </div>
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="lg"
+                  onClick={() => onViewChange("route-optimizer")}
+                  className="text-lg px-8 py-6 h-auto flex-col gap-2"
+                >
+                  <Navigation className="h-6 w-6" />
+                  <div>
+                    <div className="font-semibold">Route Optimizer</div>
+                    <div className="text-sm opacity-80">Smart planning</div>
+                  </div>
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="lg"
+                  onClick={() => onViewChange("notifications")}
+                  className="text-lg px-8 py-6 h-auto flex-col gap-2"
+                >
+                  <Bell className="h-6 w-6" />
+                  <div>
+                    <div className="font-semibold">Notifications</div>
+                    <div className="text-sm opacity-80">Real-time alerts</div>
+                  </div>
+                </Button>
+                <Button 
+                  variant="default" 
+                  size="lg"
+                  onClick={() => onViewChange("features")}
+                  className="text-lg px-8 py-6 h-auto flex-col gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+                >
+                  <Rocket className="h-6 w-6" />
+                  <div>
+                    <div className="font-semibold">All Features</div>
+                    <div className="text-sm opacity-80">Complete showcase</div>
+                  </div>
                 </Button>
               </div>
 

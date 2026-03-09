@@ -2,6 +2,26 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Mobile-first responsive design */
+* {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+/* Smooth scrolling for mobile */
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  touch-action: manipulation;
+}
+
+/* Prevent text selection on buttons and interactive elements */
+button, a, input[type="button"], input[type="submit"] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 /* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
 All colors MUST be HSL.
 */
@@ -131,4 +151,376 @@ All colors MUST be HSL.
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Mapbox styles */
+.mapbox-map-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+  .mapbox-map-container {
+    height: 300px; /* Smaller height on mobile */
+  }
+  
+  /* Adjust marker sizes for touch */
+  .mapbox-marker {
+    width: 32px !important;
+    height: 32px !important;
+  }
+  
+  /* Mobile-friendly popups */
+  .mapboxgl-popup-content {
+    max-width: 280px !important;
+    padding: 12px !important;
+  }
+  
+  /* Touch-friendly controls */
+  .mapboxgl-ctrl-group {
+    margin: 8px !important;
+  }
+  
+  .mapboxgl-ctrl-group button {
+    width: 40px !important;
+    height: 40px !important;
+  }
+}
+
+/* Tablet optimizations */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .mapbox-map-container {
+    height: 350px;
+  }
+}
+
+/* Desktop optimizations */
+@media (min-width: 1025px) {
+  .mapbox-map-container {
+    height: 400px;
+  }
+}
+
+/* Custom popup styles */
+.custom-popup .mapboxgl-popup-content {
+  padding: 0;
+  border-radius: 8px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.custom-popup .mapboxgl-popup-tip {
+  border-top-color: white;
+}
+
+/* Bus marker animations */
+@keyframes bus-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.bus-marker-moving {
+  animation: bus-pulse 2s infinite;
+}
+
+/* Route line styles */
+.route-line {
+  stroke: #3b82f6;
+  stroke-width: 4;
+  stroke-opacity: 0.8;
+  stroke-dasharray: 5, 5;
+  animation: route-dash 1s linear infinite;
+}
+
+@keyframes route-dash {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: 10;
+  }
+}
+
+/* Loading states */
+.map-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+}
+
+.map-loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Error states */
+.map-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background: #fef2f2;
+  color: #dc2626;
+  text-align: center;
+  padding: 20px;
+}
+
+.map-error-icon {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 16px;
+  opacity: 0.6;
+}
+
+/* Accessibility improvements */
+.mapboxgl-ctrl-group button:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+.mapboxgl-popup-close-button:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .map-loading {
+    background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
+  }
+  
+  .map-error {
+    background: #1f2937;
+    color: #fca5a5;
+  }
+}
+
+/* High contrast mode */
+@media (prefers-contrast: high) {
+  .mapbox-marker {
+    border: 2px solid #000 !important;
+  }
+  
+  .custom-popup .mapboxgl-popup-content {
+    border: 2px solid #000;
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .bus-marker-moving {
+    animation: none;
+  }
+  
+  .route-line {
+    animation: none;
+    stroke-dasharray: none;
+  }
+  
+  .map-loading-spinner {
+    animation: none;
+  }
+}
+
+/* ===============================================
+   MOBILE PWA OPTIMIZATIONS
+   =============================================== */
+
+/* Safe area insets for notched devices */
+@supports (padding: max(0px)) {
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  
+  header, .sticky-header {
+    padding-top: env(safe-area-inset-top);
+  }
+  
+  footer, .sticky-footer {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Touch-friendly interactive elements */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Prevent zoom on input focus (iOS) */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="tel"],
+input[type="number"],
+textarea,
+select {
+  font-size: 16px !important;
+}
+
+/* Pull-to-refresh indicator */
+@keyframes pull-refresh {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.pull-refresh-indicator {
+  animation: pull-refresh 1s linear infinite;
+}
+
+/* Offline indicator */
+.offline-indicator {
+  position: fixed;
+  top: env(safe-area-inset-top, 0);
+  left: 0;
+  right: 0;
+  background: #ef4444;
+  color: white;
+  text-align: center;
+  padding: 8px;
+  z-index: 9999;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* Loading skeleton for mobile */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted)) 0%,
+    hsl(var(--muted-foreground) / 0.1) 50%,
+    hsl(var(--muted)) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s ease-in-out infinite;
+}
+
+@keyframes skeleton-loading {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Bottom sheet for mobile modals */
+@media (max-width: 768px) {
+  .modal-content {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    top: auto;
+    max-height: 90vh;
+    border-radius: 16px 16px 0 0;
+    animation: slideUp 0.3s ease-out;
+  }
+  
+  @keyframes slideUp {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+}
+
+/* Swipeable cards */
+.swipeable-card {
+  touch-action: pan-y;
+  user-select: none;
+}
+
+/* Mobile navigation */
+.mobile-nav {
+  position: fixed;
+  bottom: env(safe-area-inset-bottom, 0);
+  left: 0;
+  right: 0;
+  background: hsl(var(--card));
+  border-top: 1px solid hsl(var(--border));
+  display: flex;
+  justify-content: space-around;
+  padding: 8px 0;
+  z-index: 50;
+}
+
+/* Haptic feedback simulation */
+@media (hover: none) and (pointer: coarse) {
+  button:active,
+  .touch-target:active {
+    transform: scale(0.95);
+    transition: transform 0.1s ease;
+  }
+}
+
+/* Landscape orientation optimizations */
+@media (orientation: landscape) and (max-height: 500px) {
+  .modal-content {
+    max-height: 80vh;
+  }
+  
+  .mobile-nav {
+    padding: 4px 0;
+  }
+}
+
+/* High DPI displays */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .icon,
+  .logo {
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+}
+
+/* Install prompt banner */
+.install-prompt {
+  position: fixed;
+  bottom: calc(env(safe-area-inset-bottom, 0) + 60px);
+  left: 16px;
+  right: 16px;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  padding: 16px;
+  border-radius: 12px;
+  box-shadow: var(--shadow-elegant);
+  z-index: 100;
+  animation: slideUp 0.3s ease-out;
+}
+
+/* Performance optimizations */
+.will-change-transform {
+  will-change: transform;
+}
+
+.gpu-accelerated {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  perspective: 1000px;
 }
