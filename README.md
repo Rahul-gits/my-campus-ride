@@ -453,10 +453,9 @@ This project was designed and developed to demonstrate modern transportation sys
 
 📧 Email: rahulgunda206@gmail.com
 
-💼 LinkedIn: https://www.linkedin.com/in/rahulgunda
- (replace with your actual link)
-💻 GitHub: https://github.com/rahulgunda
- (replace with your GitHub username)
+💼 LinkedIn: https://www.linkedin.com/in/rahul-gunda-411394318/
+💻 GitHub: https://github.com/Rahul-gits
+
 
 🧠 Skills & Interests
 
