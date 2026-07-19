@@ -1355,6 +1355,9 @@ const AdminDashboard = () => {
               </div>
             </CardContent>
           </Card>
+        </div>
+      )}
+
       {/* Floating Bottom Slide Bar Navigation for Admin */}
       <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[94%] max-w-xl bg-background/85 backdrop-blur-xl border border-border/80 shadow-2xl rounded-full p-2">
         <div className="grid grid-cols-5 gap-1 text-center">
