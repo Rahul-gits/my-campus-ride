@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+import { apiService } from '@/services/apiService';
+import { websocketService } from '@/services/websocketService';
 
 // Types
 export interface BusLocation {
@@ -36,164 +38,91 @@ export interface RouteData {
   estimatedDuration?: number;
 }
 
-// Mock data - Replace with actual API calls
-const mockBusData: BusLocation[] = [
-  {
-    id: 'BUS-001',
-    name: 'Campus Express',
-    driver: 'Srinu',
-    lat: 17.3850,
-    lng: 78.4867,
-    status: 'moving',
-    capacity: 45,
-    occupied: 32,
-    eta: '3 min',
-    nextStop: 'Lakshmipuram',
-    route: 'Route A',
-    speed: 25,
-    lastUpdated: new Date().toISOString()
-  },
-  {
-    id: 'BUS-002',
-    name: 'Downtown Shuttle',
-    driver: 'Rangayya',
-    lat: 17.3950,
-    lng: 78.4967,
-    status: 'stopped',
-    capacity: 45,
-    occupied: 28,
-    eta: '8 min',
-    nextStop: 'BR Stadium',
-    route: 'Route A',
-    speed: 0,
-    lastUpdated: new Date().toISOString()
-  },
-  {
-    id: 'BUS-003',
-    name: 'Mall Connector',
-    driver: 'Kumar',
-    lat: 17.3750,
-    lng: 78.4767,
-    status: 'moving',
-    capacity: 40,
-    occupied: 35,
-    eta: '5 min',
-    nextStop: 'Shopping Center',
-    route: 'Route B',
-    speed: 20,
-    lastUpdated: new Date().toISOString()
-  }
-];
-
-const mockRouteStops: RouteStop[] = [
-  {
-    id: 'stop-001',
-    name: 'Main Gate',
-    lat: 17.3850,
-    lng: 78.4867,
-    eta: '3 min',
-    status: 'next',
-    order: 1
-  },
-  {
-    id: 'stop-002',
-    name: 'Library',
-    lat: 17.3900,
-    lng: 78.4900,
-    eta: '5 min',
-    status: 'upcoming',
-    order: 2
-  },
-  {
-    id: 'stop-003',
-    name: 'Cafeteria',
-    lat: 17.3950,
-    lng: 78.4950,
-    eta: '8 min',
-    status: 'upcoming',
-    order: 3
-  },
-  {
-    id: 'stop-004',
-    name: 'Sports Complex',
-    lat: 17.4000,
-    lng: 78.5000,
-    eta: '12 min',
-    status: 'upcoming',
-    order: 4
-  },
-  {
-    id: 'stop-005',
-    name: 'Downtown Hub',
-    lat: 17.4100,
-    lng: 78.5100,
-    eta: '18 min',
-    status: 'upcoming',
-    order: 5
-  }
-];
-
 // Custom hook for managing bus tracking data
 export const useBusTracking = () => {
+  const [routes, setRoutes] = useState<any[]>([]);
   const [busLocations, setBusLocations] = useState<BusLocation[]>([]);
   const [routeStops, setRouteStops] = useState<RouteStop[]>([]);
-  const [selectedRoute, setSelectedRoute] = useState<string>('Route A');
+  const [selectedRoute, setSelectedRoute] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
-  // Simulate real-time updates
-  const updateBusPositions = useCallback(() => {
-    setBusLocations(prevBuses => 
-      prevBuses.map(bus => {
-        // Simulate movement for moving buses
-        if (bus.status === 'moving') {
-          const latOffset = (Math.random() - 0.5) * 0.001;
-          const lngOffset = (Math.random() - 0.5) * 0.001;
-          
-          return {
-            ...bus,
-            lat: Math.max(17.3, Math.min(17.5, bus.lat + latOffset)),
-            lng: Math.max(78.4, Math.min(78.6, bus.lng + lngOffset)),
-            lastUpdated: new Date().toISOString()
-          };
+  // Load routes on mount
+  useEffect(() => {
+    const loadRoutes = async () => {
+      try {
+        const result = await apiService.getAllRoutes();
+        if (result.success && result.data) {
+          setRoutes(result.data);
+          if (result.data.length > 0) {
+            setSelectedRoute(result.data[0]._id);
+          }
         }
-        return bus;
-      })
-    );
-    setLastUpdated(new Date());
+      } catch (err) {
+        console.error('Failed to load routes from backend API:', err);
+      }
+    };
+    loadRoutes();
   }, []);
 
   // Fetch bus data
   const fetchBusData = useCallback(async () => {
+    if (!selectedRoute) return;
     setIsLoading(true);
     setError(null);
     
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Filter buses by selected route
-      const filteredBuses = mockBusData.filter(bus => bus.route === selectedRoute);
-      setBusLocations(filteredBuses);
-      setRouteStops(mockRouteStops);
+      const result = await apiService.getRouteById(selectedRoute);
+      if (result.success && result.data) {
+        const { route, buses } = result.data;
+        
+        // Map stops
+        const mappedStops: RouteStop[] = (route.stops || [])
+          .map((s: any, idx: number) => ({
+            id: s.stop?._id || `stop-${idx}`,
+            name: s.stop?.name || 'Unknown Stop',
+            lat: s.stop?.location?.lat ?? 17.3850,
+            lng: s.stop?.location?.lng ?? 78.4867,
+            eta: `${s.estimatedTime || (idx * 5)} min`,
+            status: idx === 0 ? 'passed' : idx === 1 ? 'next' : 'upcoming',
+            order: s.order
+          }))
+          .sort((a: any, b: any) => a.order - b.order);
+
+        setRouteStops(mappedStops);
+
+        // Map buses
+        const mappedBuses: BusLocation[] = (buses || []).map((b: any) => ({
+          id: b._id,
+          name: b.name || b.busNumber,
+          driver: b.driver ? `${b.driver.profile?.firstName || ''} ${b.driver.profile?.lastName || ''}`.trim() || b.driver.username : 'Unknown Driver',
+          lat: b.currentLocation?.lat ?? 17.3850,
+          lng: b.currentLocation?.lng ?? 78.4867,
+          status: b.currentStatus || 'moving',
+          capacity: b.capacity ?? 45,
+          occupied: b.occupancy?.current ?? 0,
+          eta: `${b.nextStop?.eta || '5'} min`,
+          nextStop: b.nextStop?.stop?.name || 'Main Gate',
+          route: b.route?._id || b.route,
+          speed: b.speed ?? 0,
+          lastUpdated: b.currentLocation?.lastUpdated
+        }));
+
+        setBusLocations(mappedBuses);
+      }
     } catch (err) {
       setError('Failed to fetch bus data');
       console.error('Error fetching bus data:', err);
     } finally {
       setIsLoading(false);
+      setLastUpdated(new Date());
     }
   }, [selectedRoute]);
 
   // Fetch route stops
   const fetchRouteStops = useCallback(async (routeId: string) => {
-    try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 200));
-      setRouteStops(mockRouteStops);
-    } catch (err) {
-      console.error('Error fetching route stops:', err);
-    }
+    // Stops are fetched in fetchBusData for the selected route
   }, []);
 
   // Get bus by ID
@@ -232,25 +161,76 @@ export const useBusTracking = () => {
     return `${timeInMinutes} min`;
   }, [calculateDistance]);
 
-  // Set up real-time updates
+  // Set up real-time updates via Socket.IO
   useEffect(() => {
+    if (!selectedRoute) return;
+
+    // Load initial data via REST HTTP API
     fetchBusData();
-    
-    // Set up interval for real-time updates
-    const interval = setInterval(() => {
-      updateBusPositions();
-    }, 5000); // Update every 5 seconds
 
-    return () => clearInterval(interval);
-  }, [fetchBusData, updateBusPositions]);
+    // Subscribe to WebSocket channel for this route
+    websocketService.send({
+      type: 'subscribe_route',
+      routeId: selectedRoute
+    });
 
-  // Update route stops when route changes
-  useEffect(() => {
-    fetchRouteStops(selectedRoute);
-  }, [selectedRoute, fetchRouteStops]);
+    const handleBusLocation = (data: any) => {
+      // Find and update the bus coordinates in our local state list
+      setBusLocations(prevBuses => {
+        return prevBuses.map(bus => {
+          if (bus.id === data.busId || bus.name === data.busId) {
+            return {
+              ...bus,
+              lat: data.location.lat,
+              lng: data.location.lng,
+              speed: data.speed ?? bus.speed,
+              occupied: data.occupancy?.current ?? bus.occupied,
+              status: data.status ?? bus.status,
+              lastUpdated: new Date().toISOString()
+            };
+          }
+          return bus;
+        });
+      });
+    };
+
+    const handleRouteUpdate = (data: any) => {
+      // Update specific bus coordinates from the route-update broadcast
+      setBusLocations(prevBuses => {
+        return prevBuses.map(bus => {
+          if (bus.id === data.busId || bus.name === data.busId) {
+            return {
+              ...bus,
+              lat: data.location.lat,
+              lng: data.location.lng,
+              status: data.status ?? bus.status,
+              speed: data.speed ?? bus.speed,
+              lastUpdated: new Date().toISOString()
+            };
+          }
+          return bus;
+        });
+      });
+    };
+
+    // Register event listeners
+    websocketService.on('bus_location_update', handleBusLocation);
+    websocketService.on('route_update', handleRouteUpdate);
+
+    // Clean up
+    return () => {
+      websocketService.send({
+        type: 'unsubscribe_route',
+        routeId: selectedRoute
+      });
+      websocketService.off('bus_location_update', handleBusLocation);
+      websocketService.off('route_update', handleRouteUpdate);
+    };
+  }, [selectedRoute, fetchBusData]);
 
   return {
     // Data
+    routes,
     busLocations,
     routeStops,
     selectedRoute,
@@ -265,10 +245,7 @@ export const useBusTracking = () => {
     getBusesByRoute,
     getNextStop,
     getETA,
-    calculateDistance,
-    
-    // Real-time updates
-    updateBusPositions
+    calculateDistance
   };
 };
 

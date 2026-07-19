@@ -37,12 +37,13 @@ import {
 } from "lucide-react";
 import { Button as UIButton } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
-import { useNotifications, NotificationBell, NotificationDropdown, NotificationAlert } from "@/components/NotificationSystem";
+import { useNotifications, NotificationAlert } from "@/components/NotificationSystem";
 import { LogOut } from "lucide-react";
 import { apiService } from "@/services/apiService";
+import { websocketService } from "@/services/websocketService";
 
 const AdminDashboard = () => {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const { notifications, addNotification } = useNotifications();
   const [selectedBus, setSelectedBus] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -52,112 +53,140 @@ const AdminDashboard = () => {
   const [selectedBusForPassengerManagement, setSelectedBusForPassengerManagement] = useState<string | null>(null);
   const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
-  const [showNotificationDropdown, setShowNotificationDropdown] = useState(false);
 
-  const fleetData = [
-           {
-             id: "BUS-001",
-             route: "Route A",
-             driver: "John Smith",
-             status: "active",
-             location: "Near Library",
-             passengers: 32,
-             capacity: 45,
-             lastUpdate: "2 min ago",
-             fuelLevel: 85,
-             speed: 25,
-             nextMaintenance: "3 days",
-             licensePlate: "ABC-123",
-             year: 2022,
-             mileage: 45000,
-             occupancyHistory: [
-               { time: "14:30", passengers: 32, stop: "Library" },
-               { time: "14:25", passengers: 28, stop: "Cafeteria" },
-               { time: "14:20", passengers: 35, stop: "Main Gate" },
-             ]
-           },
-    {
-      id: "BUS-002", 
-      route: "Route A",
-      driver: "Sarah Johnson",
-      status: "stopped",
-      location: "Student Center",
-      passengers: 28,
-      capacity: 45,
-      lastUpdate: "1 min ago",
-      fuelLevel: 62,
-      speed: 0,
-      nextMaintenance: "1 week",
-      licensePlate: "DEF-456",
-      year: 2021,
-      mileage: 52000,
-    },
-    {
-      id: "BUS-003",
-      route: "Route B", 
-      driver: "Mike Wilson",
-      status: "maintenance",
-      location: "Depot",
-      passengers: 0,
-      capacity: 45,
-      lastUpdate: "30 min ago",
-      fuelLevel: 95,
-      speed: 0,
-      nextMaintenance: "Today",
-      licensePlate: "GHI-789",
-      year: 2020,
-      mileage: 68000,
-    },
-    {
-      id: "BUS-004",
-      route: "Route C",
-      driver: "Emma Davis",
-      status: "active",
-      location: "Sports Complex",
-      passengers: 41,
-      capacity: 45,
-      lastUpdate: "1 min ago",
-      fuelLevel: 78,
-      speed: 30,
-      nextMaintenance: "5 days",
-      licensePlate: "JKL-012",
-      year: 2023,
-      mileage: 12000,
-    },
-  ];
-
-  const userData = [
-    { id: 1, name: "Alice Johnson", email: "alice@university.edu", role: "student", status: "active", lastLogin: "2 hours ago" },
-    { id: 2, name: "Bob Smith", email: "bob@university.edu", role: "driver", status: "active", lastLogin: "1 hour ago" },
-    { id: 3, name: "Carol Davis", email: "carol@university.edu", role: "student", status: "inactive", lastLogin: "3 days ago" },
-    { id: 4, name: "David Wilson", email: "david@university.edu", role: "admin", status: "active", lastLogin: "30 min ago" },
-  ];
-
-  const routeData = [
-    { id: "Route A", name: "Campus → Downtown", stops: 8, duration: "45 min", frequency: "15 min", status: "active" },
-    { id: "Route B", name: "Campus → Mall", stops: 6, duration: "35 min", frequency: "20 min", status: "active" },
-    { id: "Route C", name: "Campus → Station", stops: 10, duration: "55 min", frequency: "30 min", status: "maintenance" },
-  ];
-
-  const alerts = [
+  const [fleetData, setFleetData] = useState<any[]>([]);
+  const [userData, setUserData] = useState<any[]>([]);
+  const [routeData, setRouteData] = useState<any[]>([]);
+  const [alerts, setAlerts] = useState<any[]>([
     { id: 1, type: "warning", message: "BUS-003 scheduled for maintenance", time: "5 min ago", priority: "high" },
     { id: 2, type: "info", message: "Route B experiencing minor delays", time: "12 min ago", priority: "medium" },
     { id: 3, type: "success", message: "All buses reported in for morning shift", time: "1 hour ago", priority: "low" },
-    { id: 4, type: "warning", message: "Low fuel alert for BUS-002", time: "15 min ago", priority: "high" },
-  ];
+    { id: 4, type: "warning", message: "Low fuel alert for BUS-002", time: "15 min ago", priority: "high" }
+  ]);
+
+  const loadFleetData = async () => {
+    try {
+      const result = await apiService.getAllBuses();
+      if (result.success && result.data) {
+        const mapped = result.data.map((b: any) => ({
+          id: b._id,
+          busNumber: b.busNumber,
+          route: b.route?.name || b.route?.routeNumber || 'None',
+          driver: b.driver ? `${b.driver.profile?.firstName || ''} ${b.driver.profile?.lastName || ''}`.trim() || b.driver.username : 'Unassigned',
+          status: b.status || 'inactive',
+          location: b.currentLocation?.address || 'Unknown Location',
+          passengers: b.occupancy?.current ?? 0,
+          capacity: b.capacity ?? 45,
+          lastUpdate: b.currentLocation?.lastUpdated ? new Date(b.currentLocation.lastUpdated).toLocaleTimeString() : 'Never',
+          fuelLevel: b.fuelLevel ?? 80,
+          speed: b.speed ?? 0,
+          licensePlate: b.licensePlate || 'ABC-123',
+          year: b.year || 2022,
+          mileage: b.mileage || 45000,
+          occupancyHistory: b.occupancyHistory || []
+        }));
+        setFleetData(mapped);
+      }
+    } catch (err) {
+      console.error('Failed to load fleet data:', err);
+    }
+  };
+
+  const loadUserData = async () => {
+    try {
+      const result = await apiService.getAllUsers();
+      if (result.success && result.data) {
+        const mapped = result.data.map((u: any) => ({
+          id: u._id,
+          name: `${u.profile?.firstName || ''} ${u.profile?.lastName || ''}`.trim() || u.username,
+          email: u.email,
+          role: u.role,
+          status: u.isActive ? 'active' : 'inactive',
+          lastLogin: u.updatedAt ? new Date(u.updatedAt).toLocaleDateString() : 'Unknown'
+        }));
+        setUserData(mapped);
+      }
+    } catch (err) {
+      console.error('Failed to load user data:', err);
+    }
+  };
+
+  const loadRouteData = async () => {
+    try {
+      const result = await apiService.getAllRoutes();
+      if (result.success && result.data) {
+        const mapped = result.data.map((r: any) => ({
+          id: r._id,
+          routeNumber: r.routeNumber,
+          name: r.name,
+          stops: r.stops?.length || 0,
+          duration: `${r.estimatedDuration || 30} min`,
+          frequency: `${r.frequency || 15} min`,
+          status: r.isActive ? 'active' : 'inactive'
+        }));
+        setRouteData(mapped);
+      }
+    } catch (err) {
+      console.error('Failed to load route data:', err);
+    }
+  };
 
   const stats = [
-    { label: "Active Buses", value: "11/12", trend: "+2%", icon: Bus, color: "success" },
-    { label: "Total Passengers", value: "1,247", trend: "+8%", icon: Users, color: "info" },
-    { label: "Routes Covered", value: "8", trend: "0%", icon: MapPin, color: "accent" },
-    { label: "Alerts Today", value: "3", trend: "-25%", icon: AlertTriangle, color: "warning" },
-    { label: "Revenue Today", value: "$2,450", trend: "+12%", icon: DollarSign, color: "success" },
-    { label: "Fuel Efficiency", value: "8.2 L/100km", trend: "-5%", icon: Fuel, color: "info" },
+    { label: "Active Buses", value: `${fleetData.filter(b => b.status === 'active').length}/${fleetData.length || 0}`, trend: "+2%", icon: Bus, color: "success" },
+    { label: "Total Passengers", value: `${fleetData.reduce((acc, b) => acc + b.passengers, 0)}`, trend: "+8%", icon: Users, color: "info" },
+    { label: "Routes Covered", value: `${routeData.length}`, trend: "0%", icon: MapPin, color: "accent" },
+    { label: "Alerts Today", value: `${alerts.length}`, trend: "-25%", icon: AlertTriangle, color: "warning" },
+    { label: "On-Time Rate", value: "98.5%", trend: "+1.2%", icon: CheckCircle, color: "success" },
+    { label: "Fuel Efficiency", value: "8.2 L/100km", trend: "-5%", icon: Fuel, color: "info" }
   ];
 
   useEffect(() => {
+    loadFleetData();
+    loadUserData();
+    loadRouteData();
+
+    // Register WebSocket event listeners for real-time incident reports
+    const handleIncidentReport = (data: any) => {
+      console.log('Real-time incident received on Admin Dashboard:', data);
+      
+      // Update alerts state
+      setAlerts(prev => [
+        {
+          id: Date.now(),
+          type: "warning",
+          message: `INCIDENT [${data.type?.toUpperCase() || "REPORTED"}]: ${data.description} (Bus: ${data.busId})`,
+          time: "Just now",
+          priority: "high"
+        },
+        ...prev
+      ]);
+
+      // Pop visual toaster notification
+      addNotification({
+        type: 'warning',
+        priority: 'high',
+        title: 'Emergency Incident Reported',
+        message: `Driver reported an incident: ${data.description}. (Bus: ${data.busId})`,
+        category: 'system',
+        role: 'admin',
+        actions: [
+          { id: 'view-fleet', label: 'View Fleet', action: 'view_fleet', type: 'primary' },
+          { id: 'dismiss', label: 'Dismiss', action: 'dismiss', type: 'secondary' }
+        ]
+      });
+
+      // Reload fleet data since an incident might have altered a bus status
+      loadFleetData();
+    };
+
+    websocketService.on('incident_report', handleIncidentReport);
+
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
+    
+    return () => {
+      clearInterval(timer);
+      websocketService.off('incident_report', handleIncidentReport);
+    };
   }, []);
 
   // Simulate admin-specific notifications
@@ -231,116 +260,123 @@ const AdminDashboard = () => {
     return () => clearInterval(notificationTimer);
   }, [addNotification]);
 
-         // Passenger management functions
-         const updateBusPassengers = async (busId: string, newCount: number) => {
-           try {
-             const result = await apiService.updateBusStatus(busId, 'boarding');
-             if (result.success) {
-               addNotification({
-                 type: 'success',
-                 priority: 'low',
-                 title: 'Passenger Update',
-                 message: `Bus ${busId} passenger count updated to ${newCount}`,
-                 category: 'system',
-                 role: 'admin'
-               });
-             }
-           } catch (error) {
-             console.error('Error updating passengers:', error);
-             addNotification({
-               type: 'warning',
-               priority: 'high',
-               title: 'Update Failed',
-               message: `Failed to update passengers for bus ${busId}`,
-               category: 'system',
-               role: 'admin'
-             });
-           }
-         };
+          // Passenger management functions
+          const updateBusPassengers = async (busId: string, newCount: number) => {
+            try {
+              const targetBus = fleetData.find(b => b.id === busId || b.busNumber === busId);
+              const capacity = targetBus?.capacity || 45;
+              const result = await apiService.updateBus(busId, {
+                occupancy: { current: newCount, max: capacity }
+              });
+              if (result.success) {
+                addNotification({
+                  type: 'success',
+                  priority: 'low',
+                  title: 'Passenger Update',
+                  message: `Bus ${busId} passenger count updated to ${newCount}`,
+                  category: 'system',
+                  role: 'admin'
+                });
+                loadFleetData();
+              }
+            } catch (error) {
+              console.error('Error updating passengers:', error);
+              addNotification({
+                type: 'warning',
+                priority: 'high',
+                title: 'Update Failed',
+                message: `Failed to update passengers for bus ${busId}`,
+                category: 'system',
+                role: 'admin'
+              });
+            }
+          };
 
-         const getBusOccupancyStatus = (passengers: number, capacity: number) => {
-           const percentage = (passengers / capacity) * 100;
-           if (percentage >= 90) return { status: "Full", color: "destructive" };
-           if (percentage >= 70) return { status: "Busy", color: "warning" };
-           if (percentage >= 50) return { status: "Moderate", color: "info" };
-           return { status: "Light", color: "success" };
-         };
+          const getBusOccupancyStatus = (passengers: number, capacity: number) => {
+            const percentage = (passengers / capacity) * 100;
+            if (percentage >= 90) return { status: "Full", color: "destructive" };
+            if (percentage >= 70) return { status: "Busy", color: "warning" };
+            if (percentage >= 50) return { status: "Moderate", color: "info" };
+            return { status: "Light", color: "success" };
+          };
 
-         // Quick action functions with API integration
-         const handleAddBus = async (busData?: any) => {
-           try {
-             if (!busData) {
-               setShowAddBusModal(true);
-               return;
-             }
-             const result = await apiService.createBus(busData);
-             if (result.success) {
-               setShowAddBusModal(false);
-               addNotification({
-                 type: 'success',
-                 priority: 'high',
-                 title: 'Bus Added Successfully',
-                 message: `New bus ${busData.id} has been added to the fleet.`,
-                 category: 'system',
-                 role: 'admin'
-               });
-             } else {
-               addNotification({
-                 type: 'warning',
-                 priority: 'high',
-                 title: 'Failed to Add Bus',
-                 message: result.message || 'Failed to add bus to fleet',
-                 category: 'system',
-                 role: 'admin'
-               });
-             }
-           } catch (error) {
-             console.error('Error adding bus:', error);
-             addNotification({
-               type: 'warning',
-               priority: 'high',
-               title: 'Error',
-               message: 'Failed to add bus. Please try again.',
-               category: 'system',
-               role: 'admin'
-             });
-           }
-         };
+          // Quick action functions with API integration
+          const handleAddBus = async (busData?: any) => {
+            try {
+              if (!busData) {
+                setShowAddBusModal(true);
+                return;
+              }
+              const result = await apiService.createBus(busData);
+              if (result.success) {
+                setShowAddBusModal(false);
+                addNotification({
+                  type: 'success',
+                  priority: 'high',
+                  title: 'Bus Added Successfully',
+                  message: `New bus ${busData.busNumber} has been added to the fleet.`,
+                  category: 'system',
+                  role: 'admin'
+                });
+                loadFleetData();
+              } else {
+                addNotification({
+                  type: 'warning',
+                  priority: 'high',
+                  title: 'Failed to Add Bus',
+                  message: result.message || 'Failed to add bus to fleet',
+                  category: 'system',
+                  role: 'admin'
+                });
+              }
+            } catch (error) {
+              console.error('Error adding bus:', error);
+              addNotification({
+                type: 'warning',
+                priority: 'high',
+                title: 'Error',
+                message: 'Failed to add bus. Please try again.',
+                category: 'system',
+                role: 'admin'
+              });
+            }
+          };
 
-         const handleScheduleMaintenance = async (busId?: string, maintenanceData?: any) => {
-           try {
-             if (!busId || !maintenanceData) {
-               setShowMaintenanceModal(true);
-               return;
-             }
-             const result = await apiService.request('POST', '/maintenance/schedule', {
-               busId,
-               ...maintenanceData,
-               scheduledDate: new Date().toISOString()
-             });
-             if (result.success) {
-               setShowMaintenanceModal(false);
-               addNotification({
-                 type: 'success',
-                 priority: 'high',
-                 title: 'Maintenance Scheduled',
-                 message: `Maintenance for bus ${busId} has been scheduled successfully.`,
-                 category: 'maintenance',
-                 role: 'admin'
-               });
-             }
-           } catch (error) {
-             console.error('Error scheduling maintenance:', error);
-             addNotification({
-               type: 'warning',
-               priority: 'high',
-               title: 'Scheduling Failed',
-               message: 'Failed to schedule maintenance. Please try again.',
-               category: 'maintenance',
-               role: 'admin'
-             });
-           }
-         };
+          const handleScheduleMaintenance = async (busId?: string, maintenanceData?: any) => {
+            try {
+              if (!busId || !maintenanceData) {
+                setShowMaintenanceModal(true);
+                return;
+              }
+              const result = await apiService.request('POST', '/maintenance/schedule', {
+                busId,
+                ...maintenanceData,
+                scheduledDate: new Date().toISOString()
+              });
+              if (result.success) {
+                setShowMaintenanceModal(false);
+                addNotification({
+                  type: 'success',
+                  priority: 'high',
+                  title: 'Maintenance Scheduled',
+                  message: `Maintenance for bus ${busId} has been scheduled successfully.`,
+                  category: 'maintenance',
+                  role: 'admin'
+                });
+                loadFleetData();
+              }
+            } catch (error) {
+              console.error('Error scheduling maintenance:', error);
+              addNotification({
+                type: 'warning',
+                priority: 'high',
+                title: 'Scheduling Failed',
+                message: 'Failed to schedule maintenance. Please try again.',
+                category: 'maintenance',
+                role: 'admin'
+              });
+            }
+          };
 
          const handleGenerateReport = async (reportType?: string) => {
            try {
@@ -389,11 +425,6 @@ const AdminDashboard = () => {
            }
          };
 
-         // Logout handler
-         const handleLogout = () => {
-           apiService.clearToken();
-           logout();
-         };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -424,40 +455,6 @@ const AdminDashboard = () => {
 
   return (
     <div className="space-y-6 p-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold flex items-center gap-3">
-              <Shield className="h-8 w-8 text-primary" />
-              Admin Dashboard - {user?.username || 'Administrator'}
-            </h1>
-            <p className="text-muted-foreground">
-              {currentTime.toLocaleTimeString()} • Comprehensive fleet and system management
-            </p>
-          </div>
-                 <div className="flex gap-2 items-center">
-                   <Button variant="outline">
-                     <Settings className="h-4 w-4 mr-2" />
-                     Settings
-                   </Button>
-                   <div className="relative">
-                     <NotificationBell onClick={() => setShowNotificationDropdown(!showNotificationDropdown)} />
-                     <NotificationDropdown 
-                       isOpen={showNotificationDropdown} 
-                       onClose={() => setShowNotificationDropdown(false)} 
-                     />
-                   </div>
-                   <UIButton asChild variant="outline" size="sm">
-                     <a href="/alerts" className="flex items-center gap-2"><Bell className="h-4 w-4" /> View All</a>
-                   </UIButton>
-                   <Button variant="outline" onClick={handleLogout} className="flex items-center gap-2">
-                     <LogOut className="h-4 w-4" />
-                     Logout
-                   </Button>
-                 </div>
-        </div>
-      </div>
 
       {/* Enhanced Stats Overview */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
@@ -1077,9 +1074,9 @@ const AdminDashboard = () => {
 
                 <Card className="hover:shadow-elegant transition-all duration-300 cursor-pointer">
                   <CardContent className="p-6 text-center">
-                    <DollarSign className="h-12 w-12 mx-auto mb-3 text-green-500" />
-                    <h3 className="font-semibold mb-2">Financial Report</h3>
-                    <p className="text-sm text-muted-foreground mb-4">Revenue and cost analysis</p>
+                    <BarChart3 className="h-12 w-12 mx-auto mb-3 text-green-500" />
+                    <h3 className="font-semibold mb-2">Route Performance Report</h3>
+                    <p className="text-sm text-muted-foreground mb-4">Route efficiency and trip metrics</p>
                     <Button variant="outline" className="w-full">
                       <Download className="h-4 w-4 mr-2" />
                       Download
@@ -1103,7 +1100,7 @@ const AdminDashboard = () => {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="busNumber">Bus Number</Label>
-                <Input id="busNumber" placeholder="BUS-005" />
+                <Input id="busNumber" placeholder="BUS003" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="licensePlate">License Plate</Label>
@@ -1113,17 +1110,44 @@ const AdminDashboard = () => {
                 <Label htmlFor="capacity">Capacity</Label>
                 <Input id="capacity" type="number" placeholder="45" />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="driverSelect">Driver</Label>
+                <select className="w-full p-2 border rounded-md bg-transparent" id="driverSelect">
+                  <option value="">Choose a driver...</option>
+                  {userData.filter(u => u.role === 'driver').map(driver => (
+                    <option key={driver.id} value={driver.id}>{driver.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="routeSelect">Route</Label>
+                <select className="w-full p-2 border rounded-md bg-transparent" id="routeSelect">
+                  <option value="">Choose a route...</option>
+                  {routeData.map(route => (
+                    <option key={route.id} value={route.id}>{route.name}</option>
+                  ))}
+                </select>
+              </div>
               <div className="flex gap-2">
                 <Button onClick={() => {
-                  setShowAddBusModal(false);
-                  addNotification({
-                    type: 'success',
-                    priority: 'low',
-                    title: 'Bus Added',
-                    message: 'New bus added successfully!',
-                    category: 'system',
-                    role: 'admin'
-                  });
+                  const busNumber = (document.getElementById('busNumber') as HTMLInputElement)?.value;
+                  const licensePlate = (document.getElementById('licensePlate') as HTMLInputElement)?.value;
+                  const capacity = parseInt((document.getElementById('capacity') as HTMLInputElement)?.value || "45", 10);
+                  const driver = (document.getElementById('driverSelect') as HTMLSelectElement)?.value;
+                  const route = (document.getElementById('routeSelect') as HTMLSelectElement)?.value;
+                  if (busNumber && driver && route) {
+                    handleAddBus({
+                      busNumber,
+                      name: busNumber,
+                      licensePlate,
+                      capacity,
+                      driver,
+                      route,
+                      currentLocation: { lat: 17.3850, lng: 78.4867, address: 'Main Depot' }
+                    });
+                  } else {
+                    alert('Please fill out all required fields (Bus Number, Driver, and Route)');
+                  }
                 }} className="flex-1">
                   Add Bus
                 </Button>
@@ -1146,16 +1170,16 @@ const AdminDashboard = () => {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="busSelect">Select Bus</Label>
-                <select className="w-full p-2 border rounded-md" id="busSelect">
+                <select className="w-full p-2 border rounded-md bg-transparent" id="busSelect">
                   <option value="">Choose a bus...</option>
                   {fleetData.map(bus => (
-                    <option key={bus.id} value={bus.id}>{bus.id}</option>
+                    <option key={bus.id} value={bus.id}>{bus.busNumber || bus.id}</option>
                   ))}
                 </select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="maintenanceType">Maintenance Type</Label>
-                <select className="w-full p-2 border rounded-md" id="maintenanceType">
+                <select className="w-full p-2 border rounded-md bg-transparent" id="maintenanceType">
                   <option value="">Select type...</option>
                   <option value="routine">Routine Check</option>
                   <option value="repair">Repair</option>
@@ -1168,15 +1192,18 @@ const AdminDashboard = () => {
               </div>
               <div className="flex gap-2">
                 <Button onClick={() => {
-                  setShowMaintenanceModal(false);
-                  addNotification({
-                    type: 'success',
-                    priority: 'low',
-                    title: 'Maintenance Scheduled',
-                    message: 'Maintenance scheduled successfully!',
-                    category: 'maintenance',
-                    role: 'admin'
-                  });
+                  const busId = (document.getElementById('busSelect') as HTMLSelectElement)?.value;
+                  const type = (document.getElementById('maintenanceType') as HTMLSelectElement)?.value;
+                  const scheduledDate = (document.getElementById('scheduledDate') as HTMLInputElement)?.value;
+                  if (busId && type) {
+                    handleScheduleMaintenance(busId, {
+                      type,
+                      description: `${type} scheduled`,
+                      scheduledDate: scheduledDate ? new Date(scheduledDate).toISOString() : new Date().toISOString()
+                    });
+                  } else {
+                    alert('Please select a bus and a maintenance type');
+                  }
                 }} className="flex-1">
                   Schedule
                 </Button>

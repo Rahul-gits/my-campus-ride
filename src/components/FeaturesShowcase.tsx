@@ -72,7 +72,7 @@ const FeaturesShowcase = () => {
         'Multi-criteria optimization',
         'Real-time traffic integration',
         'Weather-aware routing',
-        'Dynamic pricing suggestions'
+        'Dynamic schedule adjustments'
       ],
       demo: 'Route comparison with live traffic data'
     },

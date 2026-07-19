@@ -379,7 +379,7 @@ router.post('/:id/location', auth, authorize('driver'), [
 // @route   POST /api/buses/:id/status
 // @desc    Update bus status
 // @access  Private (Driver)
-router.post('/:id/status', auth, authorize('driver'), [
+router.post('/:id/status', auth, authorize('driver', 'admin'), [
   body('status')
     .isIn(['moving', 'stopped', 'boarding', 'maintenance'])
     .withMessage('Invalid status'),
@@ -410,8 +410,8 @@ router.post('/:id/status', auth, authorize('driver'), [
       });
     }
 
-    // Check if user is the driver of this bus
-    if (bus.driver.toString() !== req.user._id.toString()) {
+    // Check if user is the driver of this bus (unless they are an admin)
+    if (req.user.role !== 'admin' && bus.driver.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to update this bus status'

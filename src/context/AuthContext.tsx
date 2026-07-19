@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import apiService from "@/services/apiService";
+import { websocketService } from "@/services/websocketService";
 
 type UserRole = "student" | "driver" | "admin";
 
@@ -15,6 +17,7 @@ interface AuthContextValue {
   token: string | null;
   isAuthenticated: boolean;
   login: (params: { email: string; password: string }) => Promise<{ ok: boolean; message?: string }>;
+  register: (params: { username: string; email: string; password: string; role?: UserRole; profile?: any }) => Promise<{ ok: boolean; message?: string }>;
   logout: () => void;
 }
 
@@ -43,6 +46,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       STORAGE_KEY,
       JSON.stringify({ user, token })
     );
+    if (token) {
+      apiService.setToken(token);
+      websocketService.connect(token);
+    } else {
+      apiService.clearToken();
+    }
   }, [user, token]);
 
   const login: AuthContextValue["login"] = async ({ email, password }) => {
@@ -80,6 +89,37 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
+  const register: AuthContextValue["register"] = async ({ username, email, password, role = "student", profile }) => {
+    try {
+      const baseUrl = (import.meta as any).env.VITE_API_URL || "/api";
+      const res = await fetch(`${baseUrl}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, email, password, role, profile })
+      });
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        const text = await res.text().catch(() => "");
+        return { ok: false, message: text || `Registration failed (HTTP ${res.status})` };
+      }
+      if (!res.ok || !data?.success) {
+        return { ok: false, message: data?.message || `Registration failed (HTTP ${res.status})` };
+      }
+      const nextUser: AuthUser = data.data.user;
+      const nextToken: string = data.data.token;
+      setUser(nextUser);
+      setToken(nextToken);
+      if (nextUser.role === "admin") navigate("/dashboard/admin");
+      else if (nextUser.role === "driver") navigate("/dashboard/driver");
+      else navigate("/dashboard/student");
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, message: err?.message || "Network error" };
+    }
+  };
+
   const logout = () => {
     setUser(null);
     setToken(null);
@@ -88,7 +128,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const value = useMemo<AuthContextValue>(
-    () => ({ user, token, isAuthenticated: Boolean(user && token), login, logout }),
+    () => ({ user, token, isAuthenticated: Boolean(user && token), login, register, logout }),
     [user, token]
   );
 

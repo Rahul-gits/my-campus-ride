@@ -19,15 +19,16 @@ import {
   CheckCircle,
   ArrowRight,
   Star,
-  DollarSign
+  Shield
 } from 'lucide-react';
+import { apiService } from '@/services/apiService';
+import { websocketService } from '@/services/websocketService';
 
 interface RouteOption {
   id: string;
   name: string;
   duration: number;
   distance: number;
-  cost: number;
   ecoScore: number;
   comfort: number;
   reliability: number;
@@ -43,7 +44,7 @@ interface RouteOption {
 }
 
 interface OptimizationCriteria {
-  priority: 'time' | 'cost' | 'eco' | 'comfort';
+  priority: 'time' | 'reliability' | 'eco' | 'comfort';
   maxTransfers: number;
   maxWalkDistance: number;
   avoidCrowdedRoutes: boolean;
@@ -54,6 +55,11 @@ const SmartRouteOptimizer = () => {
   const [fromLocation, setFromLocation] = useState('Main Gate');
   const [toLocation, setToLocation] = useState('Library');
   const [departureTime, setDepartureTime] = useState(new Date().toISOString().slice(0, 16));
+  const [isLiveConnected, setIsLiveConnected] = useState(true);
+  const [campusStops, setCampusStops] = useState<string[]>([
+    'Main Gate', 'Library', 'Central Hub', 'Science Block', 'Sports Complex', 'Hostel Block A', 'Engineering Dept'
+  ]);
+
   const [criteria, setCriteria] = useState<OptimizationCriteria>({
     priority: 'time',
     maxTransfers: 2,
@@ -68,17 +74,16 @@ const SmartRouteOptimizer = () => {
       name: 'Fastest Route',
       duration: 12,
       distance: 2.3,
-      cost: 15,
       ecoScore: 85,
       comfort: 70,
       reliability: 95,
       transfers: 0,
-      busRoutes: ['Route A'],
+      busRoutes: ['Route A (Main Shuttle)'],
       stops: [
         { name: 'Main Gate', time: '09:00', type: 'pickup' },
         { name: 'Library', time: '09:12', type: 'destination' }
       ],
-      features: ['Direct', 'Frequent Service', 'Air Conditioned'],
+      features: ['Direct', 'Frequent Service', 'Air Conditioned', 'Free Campus Shuttle'],
       warnings: ['High traffic expected']
     },
     {
@@ -86,7 +91,6 @@ const SmartRouteOptimizer = () => {
       name: 'Eco-Friendly Route',
       duration: 18,
       distance: 3.1,
-      cost: 10,
       ecoScore: 95,
       comfort: 80,
       reliability: 90,
@@ -97,7 +101,7 @@ const SmartRouteOptimizer = () => {
         { name: 'Central Hub', time: '09:12', type: 'transfer' },
         { name: 'Library', time: '09:18', type: 'destination' }
       ],
-      features: ['Electric Bus', 'Scenic Route', 'Low Emissions'],
+      features: ['Electric Bus', 'Scenic Route', 'Low Emissions', 'Free Campus Shuttle'],
       warnings: []
     },
     {
@@ -105,7 +109,6 @@ const SmartRouteOptimizer = () => {
       name: 'Comfort Route',
       duration: 22,
       distance: 2.8,
-      cost: 20,
       ecoScore: 75,
       comfort: 95,
       reliability: 85,
@@ -116,18 +119,17 @@ const SmartRouteOptimizer = () => {
         { name: 'Shopping Center', time: '09:15', type: 'transfer' },
         { name: 'Library', time: '09:22', type: 'destination' }
       ],
-      features: ['Premium Seating', 'WiFi', 'USB Charging'],
+      features: ['Premium Seating', 'WiFi', 'USB Charging', 'Free Campus Shuttle'],
       warnings: ['Limited frequency']
     },
     {
       id: '4',
-      name: 'Budget Route',
+      name: 'Campus Connector',
       duration: 25,
       distance: 4.2,
-      cost: 5,
       ecoScore: 80,
       comfort: 60,
-      reliability: 80,
+      reliability: 88,
       transfers: 2,
       busRoutes: ['Route F', 'Route G', 'Route H'],
       stops: [
@@ -136,7 +138,7 @@ const SmartRouteOptimizer = () => {
         { name: 'Sports Complex', time: '09:20', type: 'transfer' },
         { name: 'Library', time: '09:25', type: 'destination' }
       ],
-      features: ['Low Cost', 'Student Discount'],
+      features: ['Free Campus Shuttle', 'Comprehensive Stops'],
       warnings: ['Multiple transfers', 'Longer journey']
     }
   ]);
@@ -149,23 +151,85 @@ const SmartRouteOptimizer = () => {
     crowdLevel: 'Medium'
   });
 
-  // Simulate real-time updates
+  // Load campus stops from backend
   useEffect(() => {
-    const interval = setInterval(() => {
+    const fetchRoutes = async () => {
+      try {
+        const res = await apiService.getAllRoutes();
+        if (res.success && Array.isArray(res.data)) {
+          const extractedStops: string[] = [];
+          res.data.forEach((r: any) => {
+            if (Array.isArray(r.stops)) {
+              r.stops.forEach((s: any) => {
+                const stopName = s.stopName || s.name;
+                if (stopName && !extractedStops.includes(stopName)) {
+                  extractedStops.push(stopName);
+                }
+              });
+            }
+          });
+          if (extractedStops.length > 0) {
+            setCampusStops(extractedStops);
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching campus routes:', err);
+      }
+    };
+    fetchRoutes();
+  }, []);
+
+  // Subscribe to real-time WebSocket updates
+  useEffect(() => {
+    const handleConnected = () => setIsLiveConnected(true);
+    const handleDisconnected = () => setIsLiveConnected(false);
+
+    const handleBusLocation = (data: any) => {
+      // Dynamically adjust route ETAs based on real-time speed & position
+      if (data.speed) {
+        setRouteOptions(prev => prev.map(opt => {
+          if (opt.id === '1' && data.speed > 0) {
+            const adjustedDuration = Math.max(5, Math.round(12 * (30 / Math.max(15, data.speed))));
+            return { ...opt, duration: adjustedDuration };
+          }
+          return opt;
+        }));
+      }
+    };
+
+    const handleBusStatus = (data: any) => {
+      if (data.occupancy !== undefined) {
+        const crowd = data.occupancy > 35 ? 'High' : data.occupancy > 20 ? 'Medium' : 'Low';
+        setRealTimeUpdates(prev => ({ ...prev, crowdLevel: crowd }));
+      }
+    };
+
+    const handleIncident = (data: any) => {
       setRealTimeUpdates(prev => ({
         ...prev,
-        traffic: ['Light', 'Moderate', 'Heavy'][Math.floor(Math.random() * 3)],
-        crowdLevel: ['Low', 'Medium', 'High'][Math.floor(Math.random() * 3)]
+        delays: [...prev.delays.filter(d => d !== data.title), `${data.title || 'Incident'}: ${data.delay || 5} min delay`]
       }));
-    }, 10000);
+    };
 
-    return () => clearInterval(interval);
+    websocketService.on('connected', handleConnected);
+    websocketService.on('disconnected', handleDisconnected);
+    websocketService.on('bus_location_update', handleBusLocation);
+    websocketService.on('bus_status_update', handleBusStatus);
+    websocketService.on('incident_report', handleIncident);
+
+    return () => {
+      websocketService.off('connected', handleConnected);
+      websocketService.off('disconnected', handleDisconnected);
+      websocketService.off('bus_location_update', handleBusLocation);
+      websocketService.off('bus_status_update', handleBusStatus);
+      websocketService.off('incident_report', handleIncident);
+    };
   }, []);
 
   const getPriorityIcon = (priority: string) => {
     switch (priority) {
       case 'time': return <Clock className="h-4 w-4 text-blue-500" />;
-      case 'cost': return <DollarSign className="h-4 w-4 text-green-500" />;
+      case 'reliability': return <Shield className="h-4 w-4 text-emerald-500" />;
       case 'eco': return <Leaf className="h-4 w-4 text-green-500" />;
       case 'comfort': return <Star className="h-4 w-4 text-purple-500" />;
       default: return <Target className="h-4 w-4 text-gray-500" />;
@@ -190,8 +254,8 @@ const SmartRouteOptimizer = () => {
       switch (criteria.priority) {
         case 'time':
           return a.duration - b.duration;
-        case 'cost':
-          return a.cost - b.cost;
+        case 'reliability':
+          return b.reliability - a.reliability;
         case 'eco':
           return b.ecoScore - a.ecoScore;
         case 'comfort':
@@ -236,22 +300,30 @@ const SmartRouteOptimizer = () => {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
-              <Label htmlFor="from">From</Label>
-              <Input
+              <Label htmlFor="from">From Stop</Label>
+              <select
                 id="from"
                 value={fromLocation}
                 onChange={(e) => setFromLocation(e.target.value)}
-                placeholder="Starting location"
-              />
+                className="w-full p-2 border rounded-md bg-background"
+              >
+                {campusStops.map(stop => (
+                  <option key={stop} value={stop}>{stop}</option>
+                ))}
+              </select>
             </div>
             <div>
-              <Label htmlFor="to">To</Label>
-              <Input
+              <Label htmlFor="to">To Destination</Label>
+              <select
                 id="to"
                 value={toLocation}
                 onChange={(e) => setToLocation(e.target.value)}
-                placeholder="Destination"
-              />
+                className="w-full p-2 border rounded-md bg-background"
+              >
+                {campusStops.map(stop => (
+                  <option key={stop} value={stop}>{stop}</option>
+                ))}
+              </select>
             </div>
             <div>
               <Label htmlFor="time">Departure Time</Label>
@@ -290,7 +362,7 @@ const SmartRouteOptimizer = () => {
                 className="w-full p-2 border rounded-md"
               >
                 <option value="time">Fastest</option>
-                <option value="cost">Cheapest</option>
+                <option value="reliability">Most Reliable</option>
                 <option value="eco">Eco-Friendly</option>
                 <option value="comfort">Most Comfortable</option>
               </select>
@@ -399,7 +471,7 @@ const SmartRouteOptimizer = () => {
                   <Badge variant="outline" className="flex items-center gap-1">
                     {getPriorityIcon(criteria.priority)}
                     {criteria.priority === 'time' ? `${route.duration} min` :
-                     criteria.priority === 'cost' ? `₹${route.cost}` :
+                     criteria.priority === 'reliability' ? `${route.reliability}%` :
                      criteria.priority === 'eco' ? `${route.ecoScore}%` :
                      `${route.comfort}%`}
                   </Badge>
@@ -420,8 +492,8 @@ const SmartRouteOptimizer = () => {
                   <div className="text-sm text-muted-foreground">Minutes</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-green-600">₹{route.cost}</div>
-                  <div className="text-sm text-muted-foreground">Cost</div>
+                  <div className="text-2xl font-bold text-emerald-600">Free</div>
+                  <div className="text-sm text-muted-foreground">Fare</div>
                 </div>
                 <div className="text-center">
                   <div className={`text-2xl font-bold ${getScoreColor(route.ecoScore)}`}>{route.ecoScore}%</div>

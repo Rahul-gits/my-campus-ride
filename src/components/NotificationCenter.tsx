@@ -1,18 +1,17 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { toast } from 'sonner';
 import { 
   Bell, 
   BellOff, 
   Settings, 
   Smartphone, 
-  Mail, 
-  MessageSquare,
-  AlertTriangle,
-  CheckCircle,
+  AlertTriangle, 
   Clock,
   MapPin,
   Bus,
@@ -20,13 +19,18 @@ import {
   Volume2,
   VolumeX,
   Wifi,
+  WifiOff,
   Battery,
-  Signal
+  BatteryCharging,
+  Radio,
+  Trash2,
+  CheckCheck
 } from 'lucide-react';
+import { websocketService } from '@/services/websocketService';
 
 interface Notification {
   id: string;
-  type: 'bus_arrival' | 'delay' | 'route_change' | 'weather' | 'maintenance' | 'promotion';
+  type: 'bus_arrival' | 'delay' | 'route_change' | 'weather' | 'maintenance' | 'service';
   title: string;
   message: string;
   timestamp: Date;
@@ -49,7 +53,7 @@ interface NotificationSettings {
   delayAlerts: boolean;
   weatherAlerts: boolean;
   maintenanceAlerts: boolean;
-  promotionAlerts: boolean;
+  serviceAlerts: boolean;
   quietHours: {
     enabled: boolean;
     start: string;
@@ -58,13 +62,14 @@ interface NotificationSettings {
 }
 
 const NotificationCenter = () => {
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState<Notification[]>([
     {
       id: '1',
       type: 'bus_arrival',
       title: '🚌 Bus Arriving Soon',
-      message: 'Route A bus will arrive at Main Gate in 3 minutes',
-      timestamp: new Date(Date.now() - 300000),
+      message: 'Route A (Main Shuttle) will arrive at Main Gate in 3 minutes.',
+      timestamp: new Date(Date.now() - 120000),
       read: false,
       priority: 'high',
       actions: [
@@ -75,21 +80,20 @@ const NotificationCenter = () => {
     {
       id: '2',
       type: 'delay',
-      title: '⚠️ Route Delay Alert',
-      message: 'Route B is experiencing 8-minute delays due to traffic congestion',
-      timestamp: new Date(Date.now() - 600000),
+      title: '⚠️ Route Traffic Alert',
+      message: 'Route B is experiencing minor 5-minute traffic delays near Science Block.',
+      timestamp: new Date(Date.now() - 450000),
       read: false,
       priority: 'medium',
       actions: [
-        { label: 'Find Alternative', action: 'alternative', variant: 'default' },
-        { label: 'Report Issue', action: 'report', variant: 'outline' }
+        { label: 'Find Alternative', action: 'alternative', variant: 'default' }
       ]
     },
     {
       id: '3',
       type: 'weather',
-      title: '🌧️ Weather Alert',
-      message: 'Light rain expected - buses may run 2-3 minutes slower',
+      title: '🌧️ Weather Advisory',
+      message: 'Overcast skies on campus - shuttles running with extra safety margin.',
       timestamp: new Date(Date.now() - 900000),
       read: true,
       priority: 'low'
@@ -97,25 +101,13 @@ const NotificationCenter = () => {
     {
       id: '4',
       type: 'route_change',
-      title: '🔄 Route Update',
-      message: 'Route C has been temporarily rerouted due to road construction',
-      timestamp: new Date(Date.now() - 1200000),
+      title: '🔄 Route Schedule Update',
+      message: 'Express Shuttle schedule updated for afternoon peak hours.',
+      timestamp: new Date(Date.now() - 1800000),
       read: true,
       priority: 'medium',
       actions: [
-        { label: 'View New Route', action: 'view_route', variant: 'default' }
-      ]
-    },
-    {
-      id: '5',
-      type: 'promotion',
-      title: '🎉 Special Offer',
-      message: 'Get 20% off your next ride with promo code SAVE20',
-      timestamp: new Date(Date.now() - 1800000),
-      read: true,
-      priority: 'low',
-      actions: [
-        { label: 'Use Code', action: 'use_code', variant: 'default' }
+        { label: 'View Schedule', action: 'view_route', variant: 'default' }
       ]
     }
   ]);
@@ -129,323 +121,406 @@ const NotificationCenter = () => {
     busArrivalAlerts: true,
     delayAlerts: true,
     weatherAlerts: true,
-    maintenanceAlerts: false,
-    promotionAlerts: true,
+    maintenanceAlerts: true,
+    serviceAlerts: true,
     quietHours: {
-      enabled: true,
+      enabled: false,
       start: '22:00',
       end: '07:00'
     }
   });
 
   const [unreadCount, setUnreadCount] = useState(0);
-  const [isConnected, setIsConnected] = useState(true);
-  const [batteryLevel, setBatteryLevel] = useState(85);
-  const [signalStrength, setSignalStrength] = useState(4);
+  
+  // Real-time hardware device state
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [batteryLevel, setBatteryLevel] = useState<number>(88);
+  const [isCharging, setIsCharging] = useState<boolean>(false);
+  const [networkType, setNetworkType] = useState<string>('WiFi / 4G');
+  const [hasPushPermission, setHasPushPermission] = useState<boolean>(
+    typeof Notification !== 'undefined' && Notification.permission === 'granted'
+  );
 
-  // Simulate real-time notifications
+  // 1. Query live Battery API & Network status directly from hardware
   useEffect(() => {
-    const interval = setInterval(() => {
-      const newNotification: Notification = {
-        id: Date.now().toString(),
-        type: ['bus_arrival', 'delay', 'weather', 'promotion'][Math.floor(Math.random() * 4)] as any,
-        title: '🚌 New Bus Update',
-        message: 'Real-time update: Bus location and ETA refreshed',
-        timestamp: new Date(),
-        read: false,
-        priority: 'medium'
+    // Online/Offline detection
+    const handleOnline = () => {
+      setIsOnline(true);
+      toast.success("Device connected to network");
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      toast.error("Device is offline");
+    };
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    // Battery API
+    if ('getBattery' in navigator) {
+      (navigator as any).getBattery().then((battery: any) => {
+        setBatteryLevel(Math.round(battery.level * 100));
+        setIsCharging(battery.charging);
+
+        const updateBattery = () => {
+          setBatteryLevel(Math.round(battery.level * 100));
+          setIsCharging(battery.charging);
+        };
+
+        battery.addEventListener('levelchange', updateBattery);
+        battery.addEventListener('chargingchange', updateBattery);
+      }).catch((err: any) => console.log('Battery API not available:', err));
+    }
+
+    // Network Information API
+    const connection = (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection;
+    if (connection) {
+      setNetworkType((connection.effectiveType || connection.type || 'High Speed').toUpperCase());
+      const updateConn = () => {
+        setNetworkType((connection.effectiveType || connection.type || 'High Speed').toUpperCase());
       };
+      connection.addEventListener('change', updateConn);
+    }
 
-      setNotifications(prev => [newNotification, ...prev]);
-      
-      // Simulate notification sound
-      if (settings.soundEnabled) {
-        playNotificationSound();
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  // Web Audio chime generator
+  const triggerAudioFeedback = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.1); // A5
+
+      gain.gain.setValueAtTime(0.25, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.3);
+    } catch (err) {
+      console.warn('Audio chime playback error:', err);
+    }
+  };
+
+  // Device Vibration feedback
+  const triggerHaptics = () => {
+    if (settings.vibrationEnabled && typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      try {
+        navigator.vibrate([150, 80, 150]);
+      } catch {}
+    }
+  };
+
+  // Trigger browser push notification if permitted
+  const sendBrowserNotification = (title: string, body: string) => {
+    if (settings.pushNotifications && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      try {
+        new Notification(title, {
+          body,
+          icon: '/favicon.ico'
+        });
+      } catch (e) {
+        console.warn('Browser push error:', e);
       }
-    }, 30000);
+    }
+  };
 
-    return () => clearInterval(interval);
-  }, [settings.soundEnabled]);
+  // Dispatch live notification with sound, haptics, push, and state update
+  const dispatchAlert = (newNotif: Omit<Notification, 'id' | 'timestamp' | 'read'>) => {
+    const fullNotif: Notification = {
+      ...newNotif,
+      id: Date.now().toString(),
+      timestamp: new Date(),
+      read: false
+    };
+
+    setNotifications(prev => [fullNotif, ...prev]);
+
+    if (settings.soundEnabled) triggerAudioFeedback();
+    if (settings.vibrationEnabled) triggerHaptics();
+    sendBrowserNotification(fullNotif.title, fullNotif.message);
+
+    toast.info(fullNotif.title, {
+      description: fullNotif.message,
+    });
+  };
+
+  // Request Push Permission
+  const requestPushPermission = async () => {
+    if (typeof Notification !== 'undefined') {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        setHasPushPermission(true);
+        toast.success("Push notifications enabled!");
+      } else {
+        setHasPushPermission(false);
+        toast.error("Push notifications denied by browser settings");
+      }
+    }
+  };
+
+  // Listen to WebSocket events live
+  useEffect(() => {
+    const handleIncident = (data: any) => {
+      dispatchAlert({
+        type: 'delay',
+        title: `🚨 ${data.title || 'Campus Incident Alert'}`,
+        message: data.description || data.message || 'Incident reported on campus shuttle route.',
+        priority: 'urgent',
+        actions: [{ label: 'Track Bus', action: 'track', variant: 'default' }]
+      });
+    };
+
+    const handleBusUpdate = (data: any) => {
+      if (data.status === 'delayed' || data.delay) {
+        dispatchAlert({
+          type: 'delay',
+          title: `⚠️ Bus Delay: ${data.busNumber || 'Campus Bus'}`,
+          message: `Bus is delayed by ${data.delay || 5} mins. Location: ${data.currentLocation?.address || 'In transit'}`,
+          priority: 'high'
+        });
+      }
+    };
+
+    websocketService.on('incident_report', handleIncident);
+    websocketService.on('emergency_alert', handleIncident);
+    websocketService.on('bus_status_update', handleBusUpdate);
+
+    return () => {
+      websocketService.off('incident_report', handleIncident);
+      websocketService.off('emergency_alert', handleIncident);
+      websocketService.off('bus_status_update', handleBusUpdate);
+    };
+  }, [settings]);
 
   // Update unread count
   useEffect(() => {
     setUnreadCount(notifications.filter(n => !n.read).length);
   }, [notifications]);
 
-  // Simulate device status changes
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setIsConnected(Math.random() > 0.1);
-      setBatteryLevel(Math.max(10, Math.min(100, batteryLevel + (Math.random() * 4 - 2))));
-      setSignalStrength(Math.max(1, Math.min(5, signalStrength + (Math.random() * 2 - 1))));
-    }, 15000);
-
-    return () => clearInterval(interval);
-  }, [batteryLevel, signalStrength]);
-
-  const playNotificationSound = () => {
-    // Create a simple notification sound
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const oscillator = audioContext.createOscillator();
-    const gainNode = audioContext.createGain();
-    
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContext.destination);
-    
-    oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
-    oscillator.frequency.setValueAtTime(600, audioContext.currentTime + 0.1);
-    
-    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
-    
-    oscillator.start(audioContext.currentTime);
-    oscillator.stop(audioContext.currentTime + 0.2);
+  // Notification Card Action Handlers
+  const handleAction = (id: string, actionType: string) => {
+    switch (actionType) {
+      case 'track':
+        toast.success("Navigating to Live GPS Tracking...");
+        navigate('/dashboard/student');
+        break;
+      case 'view_route':
+      case 'alternative':
+        toast.success("Opening Smart Route Optimizer...");
+        navigate('/dashboard/student/route-optimizer');
+        break;
+      case 'reminder':
+        toast.success("Reminder set for bus arrival!");
+        break;
+      default:
+        toast.info(`Triggered ${actionType}`);
+        break;
+    }
   };
 
   const markAsRead = (id: string) => {
-    setNotifications(prev => 
-      prev.map(n => n.id === id ? { ...n, read: true } : n)
-    );
-    console.log(`Notification ${id} marked as read`);
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: !n.read } : n));
+    toast.success("Notification status updated");
   };
 
   const markAllAsRead = () => {
-    setNotifications(prev => 
-      prev.map(n => ({ ...n, read: true }))
-    );
-    console.log("All notifications marked as read");
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    toast.success("All notifications marked as read");
+  };
+
+  const clearAllNotifications = () => {
+    setNotifications([]);
+    toast.success("Notification list cleared");
   };
 
   const deleteNotification = (id: string) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
-    console.log(`Notification ${id} deleted`);
+    toast.success("Notification deleted");
   };
 
-  const handleNotificationAction = (notificationId: string, action: string) => {
-    console.log(`Action ${action} triggered for notification ${notificationId}`);
-    switch (action) {
-      case 'track':
-        console.log("Opening bus tracking...");
-        break;
-      case 'route':
-        console.log("Opening route details...");
-        break;
-      case 'dismiss':
-        deleteNotification(notificationId);
-        break;
-      default:
-        console.log(`Unknown action: ${action}`);
-    }
-  };
-
-  const addTestNotification = () => {
-    const newNotification: Notification = {
-      id: Date.now().toString(),
-      type: 'bus_arrival',
-      title: 'Test Notification',
-      message: 'This is a test notification to verify the system is working',
-      timestamp: new Date(),
-      read: false,
-      priority: 'medium',
-      actions: [
-        { label: 'Test Action', action: 'test', variant: 'default' },
-        { label: 'Dismiss', action: 'dismiss', variant: 'outline' }
-      ]
-    };
-    setNotifications(prev => [newNotification, ...prev]);
-  };
-
-  const getPriorityColor = (priority: string) => {
+  const getPriorityBadgeColor = (priority: string) => {
     switch (priority) {
-      case 'urgent': return 'bg-red-100 text-red-800 border-red-200';
-      case 'high': return 'bg-orange-100 text-orange-800 border-orange-200';
-      case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'low': return 'bg-blue-100 text-blue-800 border-blue-200';
-      default: return 'bg-gray-100 text-gray-800 border-gray-200';
+      case 'urgent': return 'bg-red-500/10 text-red-600 border-red-500/20';
+      case 'high': return 'bg-amber-500/10 text-amber-600 border-amber-500/20';
+      case 'medium': return 'bg-blue-500/10 text-blue-600 border-blue-500/20';
+      default: return 'bg-slate-500/10 text-slate-600 border-slate-500/20';
     }
   };
 
   const getTypeIcon = (type: string) => {
     switch (type) {
-      case 'bus_arrival': return <Bus className="h-4 w-4 text-green-500" />;
-      case 'delay': return <Clock className="h-4 w-4 text-orange-500" />;
-      case 'route_change': return <MapPin className="h-4 w-4 text-blue-500" />;
-      case 'weather': return <AlertTriangle className="h-4 w-4 text-blue-500" />;
-      case 'maintenance': return <Settings className="h-4 w-4 text-gray-500" />;
-      case 'promotion': return <Zap className="h-4 w-4 text-purple-500" />;
-      default: return <Bell className="h-4 w-4 text-gray-500" />;
+      case 'bus_arrival': return <Bus className="h-5 w-5 text-emerald-500" />;
+      case 'delay': return <Clock className="h-5 w-5 text-amber-500" />;
+      case 'route_change': return <MapPin className="h-5 w-5 text-blue-500" />;
+      case 'weather': return <AlertTriangle className="h-5 w-5 text-indigo-500" />;
+      default: return <Bell className="h-5 w-5 text-purple-500" />;
     }
   };
 
-
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <Bell className="h-8 w-8 text-blue-500" />
-            Notification Center
+          <h1 className="text-2xl sm:text-3xl font-extrabold flex items-center gap-2 tracking-tight">
+            <Bell className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
+            Alerts & Notifications Center
           </h1>
-          <p className="text-muted-foreground">Stay updated with real-time alerts and notifications</p>
+          <p className="text-sm text-muted-foreground">Real-time alerts connected to device sensors and WebSocket stream</p>
         </div>
-        <div className="flex items-center gap-4">
-          <Badge variant="outline" className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
-            {isConnected ? 'Connected' : 'Offline'}
+        <div className="flex items-center gap-3">
+          <Badge variant="outline" className={`flex items-center gap-1.5 px-3 py-1 ${isOnline ? 'border-emerald-500/30 text-emerald-600 bg-emerald-500/10' : 'border-red-500/30 text-red-600 bg-red-500/10'}`}>
+            <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+            {isOnline ? 'Live Connected' : 'Offline'}
           </Badge>
-          <Badge variant="outline" className="flex items-center gap-2">
-            <Bell className="h-4 w-4" />
+          <Badge variant="secondary" className="px-3 py-1 font-semibold">
             {unreadCount} Unread
           </Badge>
         </div>
       </div>
 
-      {/* Device Status */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Smartphone className="h-5 w-5 text-green-500" />
-            Device Status
+      {/* Real-time Hardware Device Status Panel */}
+      <Card className="border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 backdrop-blur-md">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Smartphone className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            Live Hardware Device Telemetry
           </CardTitle>
+          <CardDescription className="text-xs">Real-time readings from browser and hardware sensors</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="flex items-center gap-2">
-              <Wifi className="h-4 w-4 text-green-500" />
-              <span className="text-sm">Network: {isConnected ? 'Connected' : 'Disconnected'}</span>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+            <div className="p-3 rounded-xl bg-background border shadow-sm flex items-center gap-3">
+              {isOnline ? <Wifi className="h-5 w-5 text-emerald-500" /> : <WifiOff className="h-5 w-5 text-red-500" />}
+              <div className="text-left">
+                <div className="text-xs text-muted-foreground">Network</div>
+                <div className="text-xs font-bold">{isOnline ? networkType : 'Disconnected'}</div>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Battery className="h-4 w-4 text-green-500" />
-              <span className="text-sm">Battery: {batteryLevel}%</span>
+
+            <div className="p-3 rounded-xl bg-background border shadow-sm flex items-center gap-3">
+              {isCharging ? <BatteryCharging className="h-5 w-5 text-emerald-500 animate-pulse" /> : <Battery className="h-5 w-5 text-blue-500" />}
+              <div className="text-left">
+                <div className="text-xs text-muted-foreground">Battery</div>
+                <div className="text-xs font-bold">{batteryLevel}% {isCharging ? '(Charging)' : ''}</div>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Signal className="h-4 w-4 text-green-500" />
-              <span className="text-sm">Signal: {signalStrength}/5</span>
+
+            <div className="p-3 rounded-xl bg-background border shadow-sm flex items-center gap-3">
+              <Radio className="h-5 w-5 text-purple-500" />
+              <div className="text-left">
+                <div className="text-xs text-muted-foreground">WebSocket Stream</div>
+                <div className="text-xs font-bold text-emerald-600">Active (5000)</div>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              {settings.soundEnabled ? <Volume2 className="h-4 w-4 text-green-500" /> : <VolumeX className="h-4 w-4 text-gray-500" />}
-              <span className="text-sm">Sound: {settings.soundEnabled ? 'On' : 'Off'}</span>
+
+            <div className="p-3 rounded-xl bg-background border shadow-sm flex items-center gap-3">
+              {settings.soundEnabled ? <Volume2 className="h-5 w-5 text-emerald-500" /> : <VolumeX className="h-5 w-5 text-slate-400" />}
+              <div className="text-left">
+                <div className="text-xs text-muted-foreground">Audio & Haptics</div>
+                <div className="text-xs font-bold">{settings.soundEnabled ? 'Chime Active' : 'Muted'}</div>
+              </div>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Notification Settings */}
+      {/* Notification Settings Controls */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Settings className="h-5 w-5 text-purple-500" />
-            Notification Settings
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Settings className="h-4 w-4 text-blue-500" />
+            Alert Preferences & Device Signals
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div className="space-y-4">
-              <h4 className="font-semibold">Delivery Methods</h4>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="push" className="flex items-center gap-2">
-                    <Smartphone className="h-4 w-4" />
-                    Push Notifications
-                  </Label>
-                  <Switch
-                    id="push"
-                    checked={settings.pushNotifications}
-                    onCheckedChange={(checked) => setSettings({...settings, pushNotifications: checked})}
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="email" className="flex items-center gap-2">
-                    <Mail className="h-4 w-4" />
-                    Email Notifications
-                  </Label>
-                  <Switch
-                    id="email"
-                    checked={settings.emailNotifications}
-                    onCheckedChange={(checked) => setSettings({...settings, emailNotifications: checked})}
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="sms" className="flex items-center gap-2">
-                    <MessageSquare className="h-4 w-4" />
-                    SMS Notifications
-                  </Label>
-                  <Switch
-                    id="sms"
-                    checked={settings.smsNotifications}
-                    onCheckedChange={(checked) => setSettings({...settings, smsNotifications: checked})}
-                  />
-                </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-xs">
+            <div className="space-y-3">
+              <h4 className="font-semibold text-slate-900 dark:text-slate-100">Delivery Channels</h4>
+              <div className="flex items-center justify-between p-2 rounded-lg bg-muted/40">
+                <Label htmlFor="push-toggle" className="cursor-pointer font-medium">Browser Push Notifications</Label>
+                <Switch
+                  id="push-toggle"
+                  checked={settings.pushNotifications}
+                  onCheckedChange={(checked) => {
+                    setSettings({ ...settings, pushNotifications: checked });
+                    if (checked && !hasPushPermission) requestPushPermission();
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-between p-2 rounded-lg bg-muted/40">
+                <Label htmlFor="sound-toggle" className="cursor-pointer font-medium">Web Audio Sound Chime</Label>
+                <Switch
+                  id="sound-toggle"
+                  checked={settings.soundEnabled}
+                  onCheckedChange={(checked) => setSettings({ ...settings, soundEnabled: checked })}
+                />
+              </div>
+              <div className="flex items-center justify-between p-2 rounded-lg bg-muted/40">
+                <Label htmlFor="haptic-toggle" className="cursor-pointer font-medium">Haptic Vibration</Label>
+                <Switch
+                  id="haptic-toggle"
+                  checked={settings.vibrationEnabled}
+                  onCheckedChange={(checked) => setSettings({ ...settings, vibrationEnabled: checked })}
+                />
               </div>
             </div>
 
-            <div className="space-y-4">
-              <h4 className="font-semibold">Alert Types</h4>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="bus-arrival">Bus Arrival Alerts</Label>
-                  <Switch
-                    id="bus-arrival"
-                    checked={settings.busArrivalAlerts}
-                    onCheckedChange={(checked) => setSettings({...settings, busArrivalAlerts: checked})}
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="delay">Delay Alerts</Label>
-                  <Switch
-                    id="delay"
-                    checked={settings.delayAlerts}
-                    onCheckedChange={(checked) => setSettings({...settings, delayAlerts: checked})}
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="weather">Weather Alerts</Label>
-                  <Switch
-                    id="weather"
-                    checked={settings.weatherAlerts}
-                    onCheckedChange={(checked) => setSettings({...settings, weatherAlerts: checked})}
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="maintenance">Maintenance Alerts</Label>
-                  <Switch
-                    id="maintenance"
-                    checked={settings.maintenanceAlerts}
-                    onCheckedChange={(checked) => setSettings({...settings, maintenanceAlerts: checked})}
-                  />
-                </div>
+            <div className="space-y-3">
+              <h4 className="font-semibold text-slate-900 dark:text-slate-100">Alert Filters</h4>
+              <div className="flex items-center justify-between p-2 rounded-lg bg-muted/40">
+                <Label htmlFor="bus-arrival-toggle" className="cursor-pointer font-medium">Bus Arrival Alerts</Label>
+                <Switch
+                  id="bus-arrival-toggle"
+                  checked={settings.busArrivalAlerts}
+                  onCheckedChange={(checked) => setSettings({ ...settings, busArrivalAlerts: checked })}
+                />
+              </div>
+              <div className="flex items-center justify-between p-2 rounded-lg bg-muted/40">
+                <Label htmlFor="delay-toggle" className="cursor-pointer font-medium">Delay & Traffic Alerts</Label>
+                <Switch
+                  id="delay-toggle"
+                  checked={settings.delayAlerts}
+                  onCheckedChange={(checked) => setSettings({ ...settings, delayAlerts: checked })}
+                />
+              </div>
+              <div className="flex items-center justify-between p-2 rounded-lg bg-muted/40">
+                <Label htmlFor="weather-toggle" className="cursor-pointer font-medium">Weather Advisories</Label>
+                <Switch
+                  id="weather-toggle"
+                  checked={settings.weatherAlerts}
+                  onCheckedChange={(checked) => setSettings({ ...settings, weatherAlerts: checked })}
+                />
               </div>
             </div>
 
-            <div className="space-y-4">
-              <h4 className="font-semibold">Preferences</h4>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="sound">Sound Enabled</Label>
-                  <Switch
-                    id="sound"
-                    checked={settings.soundEnabled}
-                    onCheckedChange={(checked) => setSettings({...settings, soundEnabled: checked})}
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="vibration">Vibration Enabled</Label>
-                  <Switch
-                    id="vibration"
-                    checked={settings.vibrationEnabled}
-                    onCheckedChange={(checked) => setSettings({...settings, vibrationEnabled: checked})}
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="quiet-hours">Quiet Hours</Label>
-                  <Switch
-                    id="quiet-hours"
-                    checked={settings.quietHours.enabled}
-                    onCheckedChange={(checked) => setSettings({...settings, quietHours: {...settings.quietHours, enabled: checked}})}
-                  />
-                </div>
-              </div>
+            <div className="space-y-3">
+              <h4 className="font-semibold text-slate-900 dark:text-slate-100">Quick Actions</h4>
+              <Button variant="outline" size="sm" onClick={requestPushPermission} className="w-full text-xs">
+                <Smartphone className="h-3.5 w-3.5 mr-2 text-blue-500" />
+                Enable Native Push
+              </Button>
+              <Button variant="outline" size="sm" onClick={markAllAsRead} className="w-full text-xs">
+                <CheckCheck className="h-3.5 w-3.5 mr-2 text-emerald-500" />
+                Mark All Read ({unreadCount})
+              </Button>
+              <Button variant="outline" size="sm" onClick={clearAllNotifications} className="w-full text-xs text-red-500 hover:text-red-600">
+                <Trash2 className="h-3.5 w-3.5 mr-2" />
+                Clear All Feed
+              </Button>
             </div>
           </div>
         </CardContent>
@@ -453,78 +528,81 @@ const NotificationCenter = () => {
 
       {/* Notifications List */}
       <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <Bell className="h-5 w-5 text-blue-500" />
-              Recent Notifications
+        <CardHeader className="pb-3 flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-base font-bold flex items-center gap-2">
+              <Bell className="h-5 w-5 text-emerald-600" />
+              Live Alerts Feed
             </CardTitle>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={markAllAsRead}>
-                Mark All Read
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setNotifications([])}>
-                Clear All
-              </Button>
-            </div>
+            <CardDescription className="text-xs">Real-time updates from campus shuttles</CardDescription>
           </div>
+          <Badge variant="outline">{notifications.length} Total Alerts</Badge>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
             {notifications.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <BellOff className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>No notifications yet</p>
+              <div className="text-center py-10 text-muted-foreground">
+                <BellOff className="h-10 w-10 mx-auto mb-3 opacity-40" />
+                <p className="text-sm font-medium">No alerts in feed</p>
+                <p className="text-xs text-slate-400 mt-1">New alerts will pop up automatically as buses run</p>
               </div>
             ) : (
-              notifications.map((notification) => (
+              notifications.map((n) => (
                 <div
-                  key={notification.id}
-                  className={`p-4 rounded-lg border transition-colors ${
-                    notification.read ? 'bg-gray-50 border-gray-200' : 'bg-white border-blue-200'
+                  key={n.id}
+                  className={`p-4 rounded-xl border transition-all ${
+                    n.read 
+                      ? 'bg-slate-50/50 dark:bg-slate-900/30 border-slate-200 dark:border-slate-800 opacity-80' 
+                      : 'bg-white dark:bg-slate-900 border-emerald-500/30 shadow-sm ring-1 ring-emerald-500/10'
                   }`}
                 >
                   <div className="flex items-start gap-3">
-                    <div className="mt-1">
-                      {getTypeIcon(notification.type)}
+                    <div className="p-2 rounded-xl bg-muted/60 mt-0.5">
+                      {getTypeIcon(n.type)}
                     </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-semibold">{notification.title}</h4>
-                        <Badge variant="outline" className={getPriorityColor(notification.priority)}>
-                          {notification.priority}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <h4 className="font-semibold text-sm text-foreground">{n.title}</h4>
+                        <Badge variant="outline" className={`text-[10px] uppercase font-bold ${getPriorityBadgeColor(n.priority)}`}>
+                          {n.priority}
                         </Badge>
-                        {!notification.read && (
-                          <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                        {!n.read && (
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
                         )}
                       </div>
-                      <p className="text-sm text-muted-foreground mb-2">{notification.message}</p>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-muted-foreground">
-                          {notification.timestamp.toLocaleString()}
+                      <p className="text-xs text-muted-foreground leading-relaxed mb-3">{n.message}</p>
+                      
+                      <div className="flex items-center justify-between text-xs pt-1 border-t border-muted/50 gap-2 flex-wrap">
+                        <span className="text-[11px] text-slate-400 flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {n.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                         </span>
-                        <div className="flex gap-2">
-                          {notification.actions?.map((action, index) => (
+
+                        <div className="flex items-center gap-1.5">
+                          {n.actions?.map((act, i) => (
                             <Button
-                              key={index}
-                              variant={action.variant}
+                              key={i}
+                              variant={act.variant}
                               size="sm"
-                              onClick={() => handleNotificationAction(notification.id, action.action)}
+                              className="h-7 text-xs px-2.5"
+                              onClick={() => handleAction(n.id, act.action)}
                             >
-                              {action.label}
+                              {act.label}
                             </Button>
                           ))}
                           <Button
-                            variant="outline"
+                            variant="ghost"
                             size="sm"
-                            onClick={() => markAsRead(notification.id)}
+                            className="h-7 text-xs px-2"
+                            onClick={() => markAsRead(n.id)}
                           >
-                            {notification.read ? 'Mark Unread' : 'Mark Read'}
+                            {n.read ? 'Mark Unread' : 'Mark Read'}
                           </Button>
                           <Button
-                            variant="outline"
+                            variant="ghost"
                             size="sm"
-                            onClick={() => deleteNotification(notification.id)}
+                            className="h-7 text-xs px-2 text-red-500 hover:text-red-600"
+                            onClick={() => deleteNotification(n.id)}
                           >
                             Delete
                           </Button>
@@ -539,87 +617,70 @@ const NotificationCenter = () => {
         </CardContent>
       </Card>
 
-      {/* Test Notifications */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Zap className="h-5 w-5 text-yellow-500" />
-            Test Notifications
+      {/* Interactive Trigger Buttons */}
+      <Card className="border-amber-500/20 bg-amber-500/5">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2 text-amber-700 dark:text-amber-400">
+            <Zap className="h-4 w-4 text-amber-500" />
+            Interactive Alert Triggers
           </CardTitle>
+          <CardDescription className="text-xs">Click to test real-time audio chimes, haptics, and feed updates</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Button
               variant="outline"
-              onClick={() => {
-                const testNotification: Notification = {
-                  id: Date.now().toString(),
-                  type: 'bus_arrival',
-                  title: '🚌 Test Bus Alert',
-                  message: 'This is a test notification for bus arrival',
-                  timestamp: new Date(),
-                  read: false,
-                  priority: 'high'
-                };
-                setNotifications(prev => [testNotification, ...prev]);
-                if (settings.soundEnabled) playNotificationSound();
-              }}
+              size="sm"
+              className="text-xs font-semibold"
+              onClick={() => dispatchAlert({
+                type: 'bus_arrival',
+                title: '🚌 Bus Arriving: Main Gate',
+                message: 'Shuttle BUS-001 is 2 minutes away from Main Gate stop.',
+                priority: 'high',
+                actions: [{ label: 'Track Bus', action: 'track', variant: 'default' }]
+              })}
             >
-              Test Bus Alert
+              Test Bus Arrival Alert
             </Button>
             <Button
               variant="outline"
-              onClick={() => {
-                const testNotification: Notification = {
-                  id: Date.now().toString(),
-                  type: 'delay',
-                  title: '⚠️ Test Delay Alert',
-                  message: 'This is a test notification for route delays',
-                  timestamp: new Date(),
-                  read: false,
-                  priority: 'medium'
-                };
-                setNotifications(prev => [testNotification, ...prev]);
-                if (settings.soundEnabled) playNotificationSound();
-              }}
+              size="sm"
+              className="text-xs font-semibold"
+              onClick={() => dispatchAlert({
+                type: 'delay',
+                title: '⚠️ Traffic Delay Alert',
+                message: 'Heavy traffic near Sports Complex causing 7 min delay on Route C.',
+                priority: 'medium',
+                actions: [{ label: 'Find Alternative', action: 'alternative', variant: 'default' }]
+              })}
             >
               Test Delay Alert
             </Button>
             <Button
               variant="outline"
-              onClick={() => {
-                const testNotification: Notification = {
-                  id: Date.now().toString(),
-                  type: 'weather',
-                  title: '🌧️ Test Weather Alert',
-                  message: 'This is a test notification for weather updates',
-                  timestamp: new Date(),
-                  read: false,
-                  priority: 'low'
-                };
-                setNotifications(prev => [testNotification, ...prev]);
-                if (settings.soundEnabled) playNotificationSound();
-              }}
+              size="sm"
+              className="text-xs font-semibold"
+              onClick={() => dispatchAlert({
+                type: 'weather',
+                title: '🌧️ Weather Alert',
+                message: 'Rain started - campus buses running with extra caution.',
+                priority: 'low'
+              })}
             >
               Test Weather Alert
             </Button>
             <Button
               variant="outline"
-              onClick={() => {
-                const testNotification: Notification = {
-                  id: Date.now().toString(),
-                  type: 'promotion',
-                  title: '🎉 Test Promotion',
-                  message: 'This is a test notification for promotions',
-                  timestamp: new Date(),
-                  read: false,
-                  priority: 'low'
-                };
-                setNotifications(prev => [testNotification, ...prev]);
-                if (settings.soundEnabled) playNotificationSound();
-              }}
+              size="sm"
+              className="text-xs font-semibold"
+              onClick={() => dispatchAlert({
+                type: 'service',
+                title: '🎉 Free Campus Pass Active',
+                message: 'Your monthly campus ride pass is active for all routes.',
+                priority: 'low'
+              })}
             >
-              Test Promotion
+              Test Service Alert
             </Button>
           </div>
         </CardContent>

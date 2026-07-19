@@ -1,113 +1,125 @@
 import { EventEmitter } from 'events';
+import { io, Socket } from 'socket.io-client';
 
 class WebSocketService extends EventEmitter {
-  private socket: WebSocket | null = null;
-  private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
-  private reconnectInterval = 1000;
+  private socket: Socket | null = null;
   private isConnected = false;
   private messageQueue: any[] = [];
+  private token: string | null = null;
 
   constructor() {
     super();
-    this.connect();
+    // Try to retrieve token from localStorage to auto-connect if possible
+    try {
+      const stored = localStorage.getItem('mcr_auth_state');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && parsed.token) {
+          this.token = parsed.token;
+        }
+      }
+    } catch (e) {
+      console.error('Error loading token in WebSocketService constructor:', e);
+    }
+    
+    this.connect(this.token || undefined);
   }
 
-  private connect() {
-    // Attempt a soft connection only if a WS URL is configured; otherwise run in simulation mode
-    const wsUrl = (import.meta as any).env?.VITE_WS_URL as string | undefined;
-    if (typeof window !== 'undefined' && wsUrl && 'WebSocket' in window) {
+  connect(token?: string) {
+    if (token) {
+      this.token = token;
+    } else {
       try {
-        this.socket = new WebSocket(wsUrl);
+        const stored = localStorage.getItem('mcr_auth_state');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed && parsed.token) {
+            this.token = parsed.token;
+          }
+        }
+        if (!this.token) {
+          this.token = localStorage.getItem('auth_token');
+        }
+      } catch (e) {}
+    }
 
-        this.socket.onopen = () => {
+    if (this.socket) {
+      this.socket.disconnect();
+    }
+
+    // Connect to the backend Socket.IO port
+    const wsUrl = (import.meta as any).env?.VITE_WS_URL || 'http://localhost:5000';
+
+    if (typeof window !== 'undefined' && 'WebSocket' in window) {
+      try {
+        console.log(`Connecting to Socket.IO server at ${wsUrl}...`);
+        this.socket = io(wsUrl, {
+          auth: {
+            token: this.token
+          },
+          transports: ['websocket', 'polling'],
+          autoConnect: true,
+          reconnection: true,
+          reconnectionAttempts: 5,
+          reconnectionDelay: 1000
+        });
+
+        this.socket.on('connect', () => {
           this.isConnected = true;
           this.emit('connected');
           this.processMessageQueue();
-          this.startHeartbeat();
-        };
+          console.log(`Socket.IO Connected! ID: ${this.socket?.id}`);
+        });
 
-        this.socket.onerror = () => {
-          // Fall back to simulation silently
+        this.socket.on('connect_error', (error) => {
+          console.warn('Socket.IO connection error:', error.message);
           this.isConnected = false;
-          this.startHeartbeat();
-        };
+          this.emit('disconnected');
+        });
 
-        this.socket.onclose = () => {
+        this.socket.on('disconnect', (reason) => {
+          console.log(`Socket.IO disconnected. Reason: ${reason}`);
           this.isConnected = false;
-        };
-      } catch {
-        // Fallback to simulation
+          this.emit('disconnected');
+        });
+
+        // Forward all standard event updates from Socket.IO server to EventEmitter listeners
+        this.socket.on('bus-location-update', (data) => {
+          this.emit('bus_location_update', data);
+        });
+
+        this.socket.on('bus-status-update', (data) => {
+          this.emit('bus_status_update', data);
+          this.emit('passenger_count_update', data);
+        });
+
+        this.socket.on('route-update', (data) => {
+          this.emit('route_update', data);
+          this.emit('route_status_update', data);
+        });
+
+        this.socket.on('incident-report', (data) => {
+          this.emit('incident_report', data);
+          this.emit('emergency_alert', data);
+        });
+
+        this.socket.on('notification', (data) => {
+          this.emit('notification', data);
+          this.emit('system_notification', data);
+        });
+
+      } catch (error) {
+        console.error('Failed to initialize Socket.IO:', error);
         this.isConnected = false;
-        this.startHeartbeat();
+        this.emit('disconnected');
       }
     } else {
-      // No WS URL or not supported: run in simulation mode without trying to connect
       this.isConnected = false;
-      this.startHeartbeat();
     }
-  }
-
-  private handleReconnect() {
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      setTimeout(() => {
-        console.log(`Attempting to reconnect... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-        this.connect();
-      }, this.reconnectInterval * this.reconnectAttempts);
-    } else {
-      console.error('Max reconnection attempts reached');
-      this.emit('connection_failed');
-    }
-  }
-
-  private startHeartbeat() {
-    // Simulate periodic messages for demo
-    setInterval(() => {
-      if (this.isConnected) {
-        this.simulateRealTimeUpdates();
-      }
-    }, 30000); // Every 30 seconds
-  }
-
-  private simulateRealTimeUpdates() {
-    const updates = [
-      {
-        type: 'bus_location_update',
-        data: {
-          busId: 'BUS-001',
-          location: { lat: 40.7128 + Math.random() * 0.01, lng: -74.0060 + Math.random() * 0.01 },
-          speed: Math.floor(Math.random() * 50) + 10,
-          passengers: Math.floor(Math.random() * 45),
-          nextStop: 'Main Gate',
-          eta: Math.floor(Math.random() * 10) + 2
-        }
-      },
-      {
-        type: 'route_status_update',
-        data: {
-          routeId: 'Route A',
-          status: Math.random() > 0.8 ? 'delayed' : 'on_time',
-          delay: Math.random() > 0.8 ? Math.floor(Math.random() * 15) + 5 : 0
-        }
-      },
-      {
-        type: 'passenger_count_update',
-        data: {
-          busId: 'BUS-002',
-          passengers: Math.floor(Math.random() * 45),
-          capacity: 45,
-          occupancyRate: Math.floor(Math.random() * 100)
-        }
-      }
-    ];
-
-    const randomUpdate = updates[Math.floor(Math.random() * updates.length)];
-    this.emit(randomUpdate.type, randomUpdate.data);
   }
 
   private processMessageQueue() {
-    while (this.messageQueue.length > 0 && this.isConnected) {
+    while (this.messageQueue.length > 0 && this.isConnected && this.socket) {
       const message = this.messageQueue.shift();
       this.send(message);
     }
@@ -116,9 +128,23 @@ class WebSocketService extends EventEmitter {
   send(data: any) {
     if (this.isConnected && this.socket) {
       try {
-        this.socket.send(JSON.stringify(data));
+        if (data.type === 'subscribe_bus' || data.type === 'join-bus-tracking') {
+          this.socket.emit('join-bus-tracking', data.busId);
+        } else if (data.type === 'unsubscribe_bus' || data.type === 'leave-bus-tracking') {
+          this.socket.emit('leave-bus-tracking', data.busId);
+        } else if (data.type === 'subscribe_route' || data.type === 'join-route-tracking') {
+          this.socket.emit('join-route-tracking', data.routeId);
+        } else if (data.type === 'unsubscribe_route' || data.type === 'leave-route-tracking') {
+          this.socket.emit('leave-route-tracking', data.routeId);
+        } else if (data.type === 'driver-location-update') {
+          this.socket.emit('driver-location-update', data.data);
+        } else if (data.type === 'driver-incident') {
+          this.socket.emit('driver-incident', data.data);
+        } else {
+          this.socket.send(data);
+        }
       } catch (error) {
-        console.error('Failed to send message:', error);
+        console.error('Failed to send Socket.IO message:', error);
         this.messageQueue.push(data);
       }
     } else {
@@ -126,128 +152,18 @@ class WebSocketService extends EventEmitter {
     }
   }
 
-  // Simulate emergency alerts
-  simulateEmergencyAlert() {
-    const emergencyTypes = [
-      {
-        type: 'emergency_alert',
-        data: {
-          id: Date.now().toString(),
-          type: 'medical',
-          description: 'Medical emergency reported on Route B',
-          location: { lat: 40.7128, lng: -74.0060, address: 'Main Campus' },
-          busId: 'BUS-003',
-          severity: 'high',
-          timestamp: new Date()
-        }
-      },
-      {
-        type: 'emergency_alert',
-        data: {
-          id: Date.now().toString(),
-          type: 'mechanical',
-          description: 'Bus breakdown reported',
-          location: { lat: 40.7128, lng: -74.0060, address: 'Downtown Stop' },
-          busId: 'BUS-001',
-          severity: 'medium',
-          timestamp: new Date()
-        }
-      }
-    ];
-
-    const randomEmergency = emergencyTypes[Math.floor(Math.random() * emergencyTypes.length)];
-    this.emit(randomEmergency.type, randomEmergency.data);
-  }
-
-  // Simulate route updates
-  simulateRouteUpdate() {
-    const routeUpdates = [
-      {
-        type: 'route_update',
-        data: {
-          routeId: 'Route A',
-          status: 'delayed',
-          message: 'Route A delayed due to traffic congestion',
-          delay: 10,
-          timestamp: new Date()
-        }
-      },
-      {
-        type: 'route_update',
-        data: {
-          routeId: 'Route B',
-          status: 'on_time',
-          message: 'Route B running on schedule',
-          delay: 0,
-          timestamp: new Date()
-        }
-      }
-    ];
-
-    const randomUpdate = routeUpdates[Math.floor(Math.random() * routeUpdates.length)];
-    this.emit(randomUpdate.type, randomUpdate.data);
-  }
-
-  // Simulate maintenance alerts
-  simulateMaintenanceAlert() {
-    this.emit('maintenance_alert', {
-      busId: 'BUS-002',
-      type: 'scheduled',
-      description: 'Scheduled maintenance due in 2 hours',
-      scheduledTime: new Date(Date.now() + 2 * 60 * 60 * 1000),
-      priority: 'medium'
-    });
-  }
-
-  // Simulate payment notifications
-  simulatePaymentNotification() {
-    this.emit('payment_notification', {
-      userId: 'user123',
-      type: 'success',
-      amount: 25.00,
-      passType: 'Monthly Pass',
-      transactionId: 'TXN-' + Date.now()
-    });
-  }
-
-  // Simulate gamification updates
-  simulateGamificationUpdate() {
-    this.emit('gamification_update', {
-      userId: 'user123',
-      achievement: 'Eco-Friendly Rider',
-      points: 50,
-      badge: 'eco-badge',
-      description: 'Completed 10 eco-friendly rides'
-    });
-  }
-
-  // Simulate system notifications
-  simulateSystemNotification() {
-    const systemNotifications = [
-      {
-        type: 'system_maintenance',
-        message: 'System maintenance scheduled for tonight at 2 AM',
-        scheduledTime: new Date(Date.now() + 6 * 60 * 60 * 1000)
-      },
-      {
-        type: 'feature_update',
-        message: 'New route tracking features are now available!',
-        features: ['Real-time occupancy', 'Predictive arrival times']
-      },
-      {
-        type: 'policy_update',
-        message: 'Updated safety policies effective immediately',
-        priority: 'high'
-      }
-    ];
-
-    const randomNotification = systemNotifications[Math.floor(Math.random() * systemNotifications.length)];
-    this.emit('system_notification', randomNotification);
+  // Socket.IO direct emit method
+  emitEvent(eventName: string, data: any) {
+    if (this.isConnected && this.socket) {
+      this.socket.emit(eventName, data);
+    } else {
+      this.messageQueue.push({ type: 'emit', eventName, data });
+    }
   }
 
   disconnect() {
     if (this.socket) {
-      this.socket.close();
+      this.socket.disconnect();
       this.socket = null;
     }
     this.isConnected = false;
@@ -258,40 +174,65 @@ class WebSocketService extends EventEmitter {
     return this.isConnected;
   }
 
-  // Public methods for triggering demo events
+  // Public triggers to maintain demo interface support
   triggerEmergencyAlert() {
-    this.simulateEmergencyAlert();
+    this.emit('emergency_alert', {
+      id: Date.now().toString(),
+      type: 'mechanical',
+      description: 'Breakdown reported on Route A',
+      location: { lat: 17.3850, lng: 78.4867, address: 'Main Gate' },
+      busId: 'BUS-001',
+      severity: 'high',
+      timestamp: new Date()
+    });
   }
 
   triggerRouteUpdate() {
-    this.simulateRouteUpdate();
+    this.emit('route_update', {
+      routeId: 'route-1',
+      status: 'delayed',
+      message: 'Route delayed due to traffic',
+      delay: 15,
+      timestamp: new Date()
+    });
   }
 
   triggerMaintenanceAlert() {
-    this.simulateMaintenanceAlert();
+    this.emit('maintenance_alert', {
+      busId: 'BUS-002',
+      type: 'scheduled',
+      description: 'Scheduled maintenance check',
+      priority: 'medium'
+    });
   }
 
   triggerPaymentNotification() {
-    this.simulatePaymentNotification();
+    this.emit('payment_notification', {
+      userId: 'user123',
+      type: 'success',
+      amount: 25.00,
+      transactionId: 'TXN-' + Date.now()
+    });
   }
 
   triggerGamificationUpdate() {
-    this.simulateGamificationUpdate();
+    this.emit('gamification_update', {
+      achievement: 'Eco-Rider Badge',
+      points: 100
+    });
   }
 
   triggerSystemNotification() {
-    this.simulateSystemNotification();
+    this.emit('system_notification', {
+      message: 'Scheduled server maintenance tonight'
+    });
   }
 
-  // Method to simulate all types of notifications for testing
   triggerAllNotifications() {
-    setTimeout(() => this.simulateEmergencyAlert(), 1000);
-    setTimeout(() => this.simulateRouteUpdate(), 2000);
-    setTimeout(() => this.simulateMaintenanceAlert(), 3000);
-    setTimeout(() => this.simulatePaymentNotification(), 4000);
-    setTimeout(() => this.simulateGamificationUpdate(), 5000);
-    setTimeout(() => this.simulateSystemNotification(), 6000);
+    this.triggerEmergencyAlert();
+    this.triggerRouteUpdate();
   }
 }
 
 export const websocketService = new WebSocketService();
+export default websocketService;

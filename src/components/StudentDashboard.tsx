@@ -31,7 +31,7 @@ import MapboxMap from "@/components/MapboxMap";
 import { Button as UIButton } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
 import { useBusTracking, BusLocation, RouteStop } from "@/hooks/useBusTracking";
-import { useNotifications, NotificationBell, NotificationDropdown, NotificationAlert } from "@/components/NotificationSystem";
+import { useNotifications, NotificationAlert } from "@/components/NotificationSystem";
 
 const StudentDashboard = () => {
   const { user } = useAuth();
@@ -39,8 +39,7 @@ const StudentDashboard = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [selectedBus, setSelectedBus] = useState<BusLocation | null>(null);
   const [selectedStop, setSelectedStop] = useState<RouteStop | null>(null);
-  const [favoriteRoutes, setFavoriteRoutes] = useState<string[]>(["Route A"]);
-  const [showNotificationDropdown, setShowNotificationDropdown] = useState(false);
+  const [favoriteRoutes, setFavoriteRoutes] = useState<string[]>([]);
   const [rideHistory, setRideHistory] = useState([
     { id: 1, route: "Route A", date: "2024-01-15", time: "08:30", duration: "25 min", rating: 5 },
     { id: 2, route: "Route B", date: "2024-01-14", time: "14:15", duration: "18 min", rating: 4 },
@@ -49,6 +48,7 @@ const StudentDashboard = () => {
 
   // Use the custom hook for bus tracking
   const {
+    routes: routesData,
     busLocations,
     routeStops,
     selectedRoute,
@@ -112,11 +112,12 @@ const StudentDashboard = () => {
     return () => clearInterval(notificationTimer);
   }, [addNotification]);
 
-  const routes = [
-    { id: "Route A", name: "Campus → Downtown", buses: getBusesByRoute("Route A").length, nextArrival: "3 min" },
-    { id: "Route B", name: "Campus → Mall", buses: getBusesByRoute("Route B").length, nextArrival: "7 min" },
-    { id: "Route C", name: "Campus → Station", buses: getBusesByRoute("Route C").length, nextArrival: "12 min" },
-  ];
+  const routes = routesData.map((r: any) => ({
+    id: r._id,
+    name: `${r.routeNumber} - ${r.name}`,
+    buses: getBusesByRoute(r._id).length,
+    nextArrival: `${r.frequency || 15} min`
+  }));
 
   const currentRouteBuses = getBusesByRoute(selectedRoute);
 
@@ -245,36 +246,6 @@ const StudentDashboard = () => {
 
   return (
     <div className="space-y-6 p-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold flex items-center gap-3">
-              <Bus className="h-8 w-8 text-primary" />
-              Welcome back, {user?.username || 'Student'}!
-            </h1>
-            <p className="text-muted-foreground">
-              {currentTime.toLocaleTimeString()} • Real-time updates
-            </p>
-          </div>
-                 <div className="flex items-center gap-2">
-                   <Badge variant="outline" className="flex items-center gap-2">
-                     <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
-                     Live
-                   </Badge>
-                   <div className="relative">
-                     <NotificationBell onClick={() => setShowNotificationDropdown(!showNotificationDropdown)} />
-                     <NotificationDropdown 
-                       isOpen={showNotificationDropdown} 
-                       onClose={() => setShowNotificationDropdown(false)} 
-                     />
-                   </div>
-                   <UIButton asChild variant="outline" size="sm">
-                     <a href="/alerts">View All</a>
-                   </UIButton>
-                 </div>
-        </div>
-      </div>
 
       <Tabs defaultValue="tracking" className="space-y-6">
         <TabsList className="grid w-full grid-cols-4">

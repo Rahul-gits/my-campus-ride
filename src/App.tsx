@@ -11,9 +11,14 @@ import AdminDashboard from "@/components/AdminDashboard";
 import DriverDashboard from "@/components/DriverDashboard";
 import NotificationCenter from "@/components/NotificationCenter";
 import InstallPrompt from "@/components/InstallPrompt";
+import GamificationDashboard from "@/components/GamificationDashboard";
+import SmartRouteOptimizer from "@/components/SmartRouteOptimizer";
+import AIAnalyticsDashboard from "@/components/AIAnalyticsDashboard";
+import TestMap from "@/pages/TestMap";
 import { AuthProvider } from "@/context/AuthContext";
 import { NotificationProvider } from "@/components/NotificationSystem";
-import ProtectedRoute from "@/routes/ProtectedRoute";
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
+import DashboardLayout from "@/components/layout/DashboardLayout";
 
 const queryClient = new QueryClient();
 
@@ -27,35 +32,55 @@ const App = () => (
           <NotificationProvider>
             <InstallPrompt />
             <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/login" element={<Login />} />
-            <Route
-              path="/dashboard/student"
-              element={
-                <ProtectedRoute roles={["student"]}>
-                  <StudentDashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/dashboard/driver"
-              element={
-                <ProtectedRoute roles={["driver"]}>
-                  <DriverDashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/dashboard/admin"
-              element={
-                <ProtectedRoute roles={["admin"]}>
-                  <AdminDashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route path="/alerts" element={<ProtectedRoute><NotificationCenter /></ProtectedRoute>} />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
+              {/* Public Routes */}
+              <Route path="/" element={<Index />} />
+              <Route path="/login" element={<Login />} />
+
+              {/* Protected Student Routes */}
+              <Route
+                path="/dashboard/student"
+                element={
+                  <ProtectedRoute roles={["student"]}>
+                    <DashboardLayout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<StudentDashboard />} />
+                <Route path="analytics" element={<AIAnalyticsDashboard />} />
+                <Route path="route-optimizer" element={<SmartRouteOptimizer />} />
+                <Route path="alerts" element={<NotificationCenter />} />
+              </Route>
+
+              {/* Protected Driver Routes */}
+              <Route
+                path="/dashboard/driver"
+                element={
+                  <ProtectedRoute roles={["driver"]}>
+                    <DashboardLayout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<DriverDashboard />} />
+                <Route path="alerts" element={<NotificationCenter />} />
+              </Route>
+
+              {/* Protected Admin Routes */}
+              <Route
+                path="/dashboard/admin"
+                element={
+                  <ProtectedRoute roles={["admin"]}>
+                    <DashboardLayout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<AdminDashboard />} />
+                <Route path="analytics" element={<AIAnalyticsDashboard />} />
+                <Route path="route-optimizer" element={<SmartRouteOptimizer />} />
+                <Route path="alerts" element={<NotificationCenter />} />
+              </Route>
+
+              {/* Catch-all 404 Route */}
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </NotificationProvider>
         </AuthProvider>

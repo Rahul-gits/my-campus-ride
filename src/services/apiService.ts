@@ -24,13 +24,25 @@ class APIService {
 
   // Get authentication token
   getToken(): string | null {
-    return this.token || localStorage.getItem('auth_token');
+    if (this.token) return this.token;
+    try {
+      const authState = localStorage.getItem('mcr_auth_state');
+      if (authState) {
+        const parsed = JSON.parse(authState);
+        if (parsed && parsed.token) {
+          this.token = parsed.token;
+          return this.token;
+        }
+      }
+    } catch (e) {}
+    return localStorage.getItem('auth_token');
   }
 
   // Clear authentication token
   clearToken(): void {
     this.token = null;
     localStorage.removeItem('auth_token');
+    localStorage.removeItem('mcr_auth_state');
   }
 
   // Generic request method with error handling
@@ -41,13 +53,14 @@ class APIService {
     isFormData?: boolean
   ): Promise<{ success: boolean; data?: T; message?: string; error?: string }> {
     try {
-      const headers: HeadersInit = {
-        ...(this.token && { Authorization: `Bearer ${this.token}` }),
+      const activeToken = this.getToken();
+      const headers: Record<string, string> = {
+        ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
       };
 
       const config: RequestInit = {
         method,
-        headers: isFormData ? {} : { ...headers, 'Content-Type': 'application/json' },
+        headers: isFormData ? headers : { ...headers, 'Content-Type': 'application/json' },
       };
 
       if (isFormData && data) {

@@ -1,22 +1,22 @@
 export interface AnalyticsData {
   overview: {
     totalRides: number;
-    totalRevenue: number;
+    totalTripsThisMonth: number;
     activeUsers: number;
     fleetUtilization: number;
     onTimePerformance: number;
     customerSatisfaction: number;
   };
   trends: {
-    daily: Array<{ date: string; rides: number; revenue: number }>;
-    weekly: Array<{ week: string; rides: number; revenue: number }>;
-    monthly: Array<{ month: string; rides: number; revenue: number }>;
+    daily: Array<{ date: string; rides: number; passengers: number }>;
+    weekly: Array<{ week: string; rides: number; passengers: number }>;
+    monthly: Array<{ month: string; rides: number; passengers: number }>;
   };
   routes: Array<{
     routeId: string;
     name: string;
     popularity: number;
-    revenue: number;
+    totalTrips: number;
     averageRating: number;
     peakHours: string[];
   }>;
@@ -36,8 +36,8 @@ export interface AnalyticsData {
     utilization: Array<{
       busId: string;
       utilization: number;
-      revenue: number;
-      maintenanceCost: number;
+      totalDistanceKm: number;
+      maintenanceScore: number;
     }>;
     performance: {
       averageSpeed: number;
@@ -71,13 +71,13 @@ export interface PredictiveData {
     busId: string;
     nextMaintenance: string;
     urgency: 'low' | 'medium' | 'high';
-    estimatedCost: number;
+    estimatedHours: number;
   }>;
   routeOptimization: Array<{
     routeId: string;
     currentEfficiency: number;
     suggestedEfficiency: number;
-    potentialSavings: number;
+    timeSavingsMinutes: number;
   }>;
 }
 

@@ -423,6 +423,7 @@ Voice Assistant Integration
 
 Multi-language Support
 
+<<<<<<< HEAD
 Advanced AI Recommendation Engine
 
 University ERP Integration

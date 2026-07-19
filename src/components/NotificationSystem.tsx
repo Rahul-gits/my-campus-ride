@@ -564,7 +564,7 @@ const NotificationItem: React.FC<{
       <CardContent className="p-3">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 mt-1">
-            {getNotificationIcon(notification.type)}
+            {sharedGetNotificationIcon(notification.type)}
           </div>
           
           <div className="flex-1 min-w-0">

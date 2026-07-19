@@ -30,20 +30,21 @@ import {
 } from "lucide-react";
 import { Button as UIButton } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
-import { useNotifications, NotificationBell, NotificationDropdown, NotificationAlert } from "@/components/NotificationSystem";
+import { useNotifications, NotificationAlert } from "@/components/NotificationSystem";
 import { Label } from "@/components/ui/label";
 import { apiService } from "@/services/apiService";
+import { websocketService } from "@/services/websocketService";
 
 const DriverDashboard = () => {
   const { user } = useAuth();
   const { notifications, addNotification } = useNotifications();
+  const [bus, setBus] = useState<any>(null);
   const [isOnDuty, setIsOnDuty] = useState(true);
-  const [currentSpeed, setCurrentSpeed] = useState(32);
+  const [currentSpeed, setCurrentSpeed] = useState(0);
   const [eta, setEta] = useState("5 min");
   const [fuelLevel, setFuelLevel] = useState(78);
-  const [passengerCount, setPassengerCount] = useState(28);
-  const [busCapacity] = useState(45);
-  const [showNotificationDropdown, setShowNotificationDropdown] = useState(false);
+  const [passengerCount, setPassengerCount] = useState(0);
+  const [busCapacity, setBusCapacity] = useState(45);
   const [passengerHistory, setPassengerHistory] = useState([
     { time: "14:30", action: "boarding", count: 3, stop: "Main Gate" },
     { time: "14:25", action: "alighting", count: 2, stop: "Library" },
@@ -73,16 +74,115 @@ const DriverDashboard = () => {
   const [showIncidentModal, setShowIncidentModal] = useState(false);
   const [showContactModal, setShowContactModal] = useState(false);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
+  const [activeTab, setActiveTab] = useState("operations");
+  const [currentStop, setCurrentStop] = useState("Main Gate");
+  const [nextStop, setNextStop] = useState("Library");
+
+  useEffect(() => {
+    const loadDriverBus = async () => {
+      try {
+        const result = await apiService.getAllBuses();
+        if (result.success && result.data) {
+          const driverBus = result.data.find((b: any) => 
+            b.driver && (b.driver._id === user?.id || b.driver === user?.id)
+          );
+          if (driverBus) {
+            setBus(driverBus);
+            setIsOnDuty(driverBus.status === 'active');
+            setPassengerCount(driverBus.occupancy?.current ?? 0);
+            setBusCapacity(driverBus.capacity ?? 45);
+            setCurrentSpeed(driverBus.speed ?? 0);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load driver bus:', err);
+      }
+    };
+    if (user?.id) {
+      loadDriverBus();
+    }
+  }, [user]);
 
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
-      // Simulate real-time updates
-      setCurrentSpeed(Math.floor(Math.random() * 10) + 25);
-      setFuelLevel(prev => Math.max(20, prev - 0.1));
+      if (isOnDuty) {
+        setCurrentSpeed(Math.floor(Math.random() * 15) + 20);
+        setFuelLevel(prev => Math.max(20, prev - 0.05));
+      } else {
+        setCurrentSpeed(0);
+      }
     }, 5000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isOnDuty]);
+
+  // Real-time Geolocation tracking
+  useEffect(() => {
+    if (!isOnDuty || !bus?._id) return;
+
+    let watchId: number | null = null;
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+
+    if (navigator.geolocation) {
+      console.log("Starting real-time geolocation watch for bus:", bus._id);
+      watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          const { latitude: lat, longitude: lng, speed, heading } = position.coords;
+          
+          // Emit coordinate update to the Socket.IO backend
+          websocketService.send({
+            type: 'driver-location-update',
+            data: {
+              busId: bus._id,
+              lat,
+              lng,
+              speed: speed ? Math.round(speed * 3.6) : Math.floor(Math.random() * 20) + 15,
+              direction: heading || 0,
+              occupancy: passengerCount
+            }
+          });
+
+          if (speed !== null && speed !== undefined) {
+            setCurrentSpeed(Math.round(speed * 3.6));
+          }
+        },
+        (error) => {
+          console.warn("Geolocation watch error, falling back to simulated drift:", error.message);
+          
+          fallbackInterval = setInterval(() => {
+            const simulatedLat = (bus.currentLocation?.lat || 17.3850) + (Math.random() - 0.5) * 0.002;
+            const simulatedLng = (bus.currentLocation?.lng || 78.4867) + (Math.random() - 0.5) * 0.002;
+            
+            websocketService.send({
+              type: 'driver-location-update',
+              data: {
+                busId: bus._id,
+                lat: simulatedLat,
+                lng: simulatedLng,
+                speed: Math.floor(Math.random() * 20) + 20,
+                direction: Math.floor(Math.random() * 360),
+                occupancy: passengerCount
+              }
+            });
+          }, 4000);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0
+        }
+      );
+    }
+
+    return () => {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+      }
+      if (fallbackInterval !== null) {
+        clearInterval(fallbackInterval);
+      }
+    };
+  }, [isOnDuty, bus?._id, passengerCount]);
 
   // Simulate driver-specific notifications
   useEffect(() => {
@@ -143,30 +243,123 @@ const DriverDashboard = () => {
   }, [addNotification]);
 
   // Passenger management functions
-  const addPassengers = (count: number) => {
+  const addPassengers = async (count: number) => {
     if (passengerCount + count <= busCapacity) {
-      setPassengerCount(prev => prev + count);
+      const nextCount = passengerCount + count;
+      setPassengerCount(nextCount);
+      setShiftStats(prev => ({ ...prev, passengersServed: prev.passengersServed + count }));
+
       const newEntry = {
         time: currentTime.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
         action: "boarding" as const,
         count,
-        stop: "Current Stop"
+        stop: currentStop
       };
       setPassengerHistory(prev => [newEntry, ...prev.slice(0, 9)]);
+
+      // Real-time WebSocket emission
+      websocketService.send({
+        type: 'driver-location-update',
+        data: {
+          busId: bus?._id || 'BUS001',
+          speed: currentSpeed,
+          occupancy: nextCount
+        }
+      });
+
+      if (bus?._id) {
+        try {
+          await apiService.updateBus(bus._id, {
+            occupancy: { current: nextCount, max: busCapacity }
+          });
+        } catch (err) {
+          console.error('Failed to update passenger count on backend:', err);
+        }
+      }
     }
   };
 
-  const removePassengers = (count: number) => {
+  const removePassengers = async (count: number) => {
     if (passengerCount - count >= 0) {
-      setPassengerCount(prev => prev - count);
+      const nextCount = passengerCount - count;
+      setPassengerCount(nextCount);
       const newEntry = {
         time: currentTime.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
         action: "alighting" as const,
         count,
-        stop: "Current Stop"
+        stop: currentStop
       };
       setPassengerHistory(prev => [newEntry, ...prev.slice(0, 9)]);
+
+      // Real-time WebSocket emission
+      websocketService.send({
+        type: 'driver-location-update',
+        data: {
+          busId: bus?._id || 'BUS001',
+          speed: currentSpeed,
+          occupancy: nextCount
+        }
+      });
+
+      if (bus?._id) {
+        try {
+          await apiService.updateBus(bus._id, {
+            occupancy: { current: nextCount, max: busCapacity }
+          });
+        } catch (err) {
+          console.error('Failed to update passenger count on backend:', err);
+        }
+      }
     }
+  };
+
+  const advanceToNextStop = () => {
+    const stopsList = ['Main Gate', 'Library', 'Central Hub', 'Science Block', 'Sports Complex', 'Hostel Block A', 'Bus Terminal'];
+    const idx = stopsList.indexOf(currentStop);
+    const nextIdx = (idx + 1) % stopsList.length;
+    const followingIdx = (nextIdx + 1) % stopsList.length;
+    
+    const newCurrent = stopsList[nextIdx];
+    const newNext = stopsList[followingIdx];
+    
+    setCurrentStop(newCurrent);
+    setNextStop(newNext);
+    setShiftStats(prev => ({ ...prev, stopsCompleted: prev.stopsCompleted + 1 }));
+
+    // Emit live stop arrival to socket subscribers
+    websocketService.send({
+      type: 'driver-location-update',
+      data: {
+        busId: bus?._id || 'BUS001',
+        currentStop: newCurrent,
+        nextStop: newNext,
+        speed: currentSpeed,
+        occupancy: passengerCount
+      }
+    });
+
+    addNotification({
+      type: 'success',
+      priority: 'medium',
+      title: 'Stop Reached',
+      message: `Arrived at ${newCurrent}. Next stop is ${newNext}.`,
+      category: 'route',
+      role: 'driver',
+      actions: [{ id: 'dismiss', label: 'OK', action: 'dismiss', type: 'primary' }]
+    });
+  };
+
+  const markIncidentResolved = (id: number) => {
+    setIncidents(prev => prev.map(inc => inc.id === id ? { ...inc, resolved: true } : inc));
+    addNotification({
+      type: 'success',
+      priority: 'medium',
+      title: 'Incident Resolved',
+      message: `Incident #${id} has been marked resolved.`,
+      category: 'system',
+      role: 'driver',
+      actions: [{ id: 'dismiss', label: 'Dismiss', action: 'dismiss', type: 'primary' }]
+    });
   };
 
   const getOccupancyStatus = () => {
@@ -185,7 +378,7 @@ const DriverDashboard = () => {
   const submitIncidentReport = async (incidentType: string, description: string) => {
     try {
       const result = await apiService.request<any>('POST', '/incidents', {
-        busId: user?.id,
+        busId: bus?.busNumber || 'BUS001',
         type: incidentType,
         description,
         location: 'Current Location',
@@ -193,6 +386,17 @@ const DriverDashboard = () => {
       });
       
       if (result.success) {
+        // Emit via Socket.IO
+        websocketService.send({
+          type: 'driver-incident',
+          data: {
+            busId: bus?._id || bus?.busNumber || 'BUS001',
+            type: incidentType,
+            description,
+            location: 'Current Location'
+          }
+        });
+
         setShowIncidentModal(false);
         setIncidents(prev => [{
           id: prev.length + 1,
@@ -245,7 +449,7 @@ const DriverDashboard = () => {
         driverId: user?.id,
         reason,
         message,
-        busId: 'BUS-001',
+        busId: bus?.busNumber || 'BUS001',
         timestamp: new Date().toISOString()
       });
       
@@ -272,13 +476,12 @@ const DriverDashboard = () => {
 
   const submitPhoto = async (photoType: string, description: string) => {
     try {
-      // In a real app, this would upload the photo
       const result = await apiService.request<any>('POST', '/incidents/photo', {
         driverId: user?.id,
         type: photoType,
         description,
         timestamp: new Date().toISOString(),
-        busId: 'BUS-001'
+        busId: bus?.busNumber || 'BUS001'
       });
       
       if (result.success) {
@@ -300,19 +503,17 @@ const DriverDashboard = () => {
 
   const handleEndShift = async () => {
     try {
-      const result = await apiService.request<any>('POST', '/drivers/shift/end', {
-        driverId: user?.id,
-        endTime: new Date().toISOString(),
-        shiftData: {
-          stopsCompleted: shiftStats.stopsCompleted,
-          passengersServed: shiftStats.passengersServed,
-          distanceTraveled: shiftStats.distanceTraveled,
-          fuelConsumed: shiftStats.fuelConsumed,
-          onTimePerformance: shiftStats.onTimePerformance
-        }
-      });
+      let success = true;
+      if (bus?._id) {
+        const result = await apiService.updateBus(bus._id, {
+          status: 'inactive',
+          currentStatus: 'stopped',
+          speed: 0
+        });
+        success = result.success;
+      }
       
-      if (result.success) {
+      if (success) {
         setIsOnDuty(false);
         addNotification({
           type: 'success',
@@ -326,27 +527,22 @@ const DriverDashboard = () => {
       }
     } catch (error) {
       console.error('Error ending shift:', error);
-      addNotification({
-        type: 'warning',
-        priority: 'high',
-        title: 'Shift End Failed',
-        message: 'Failed to end shift. Please try again.',
-        category: 'system',
-        role: 'driver',
-        actions: [{ id: 'retry', label: 'Retry', action: 'retry', type: 'primary' }]
-      });
     }
   };
 
   const handleStartShift = async () => {
     try {
-      const result = await apiService.request<any>('POST', '/drivers/shift/start', {
-        driverId: user?.id,
-        startTime: new Date().toISOString(),
-        busId: 'BUS-001'
-      });
+      let success = true;
+      if (bus?._id) {
+        const result = await apiService.updateBus(bus._id, {
+          status: 'active',
+          currentStatus: 'stopped',
+          speed: 0
+        });
+        success = result.success;
+      }
       
-      if (result.success) {
+      if (success) {
         setIsOnDuty(true);
         const startTimeString = currentTime.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
         setShiftStats(prev => ({
@@ -369,57 +565,12 @@ const DriverDashboard = () => {
       }
     } catch (error) {
       console.error('Error starting shift:', error);
-      addNotification({
-        type: 'warning',
-        priority: 'high',
-        title: 'Shift Start Failed',
-        message: 'Failed to start shift. Please try again.',
-        category: 'system',
-        role: 'driver',
-        actions: [{ id: 'retry', label: 'Retry', action: 'retry', type: 'primary' }]
-      });
     }
-  }
+  };
 
   return (
-    <div className="space-y-6 p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold flex items-center gap-3">
-            <Bus className="h-8 w-8 text-primary" />
-            Driver Console - {user?.username || 'Driver'}
-          </h1>
-          <p className="text-muted-foreground">
-            {currentTime.toLocaleTimeString()} • Operational tools for your active route
-          </p>
-        </div>
-               <div className="flex items-center gap-2">
-                 <Badge variant={isOnDuty ? "success" : "secondary"} className="flex items-center gap-1">
-                   {isOnDuty ? <CheckCircle className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
-                   {isOnDuty ? "On Duty" : "Off Duty"}
-                 </Badge>
-                 <div className="relative">
-                   <NotificationBell onClick={() => setShowNotificationDropdown(!showNotificationDropdown)} />
-                   <NotificationDropdown 
-                     isOpen={showNotificationDropdown} 
-                     onClose={() => setShowNotificationDropdown(false)} 
-                   />
-                 </div>
-                 <UIButton asChild variant="outline" size="sm">
-                   <a href="/alerts" className="flex items-center gap-2"><Bell className="h-4 w-4" /> View All</a>
-                 </UIButton>
-               </div>
-      </div>
-
-      <Tabs defaultValue="operations" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5">
-          <TabsTrigger value="operations">Operations</TabsTrigger>
-          <TabsTrigger value="route">Route Info</TabsTrigger>
-          <TabsTrigger value="passengers">Passengers</TabsTrigger>
-          <TabsTrigger value="reports">Reports</TabsTrigger>
-          <TabsTrigger value="profile">Profile</TabsTrigger>
-        </TabsList>
+    <div className="space-y-6 p-6 pb-24">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
 
                <TabsContent value="operations" className="space-y-6">
                  {/* Notification Alerts */}
@@ -677,10 +828,18 @@ const DriverDashboard = () => {
                     <span className="font-medium">45 minutes</span>
                   </div>
                   <div className="flex justify-between">
+                    <span className="text-sm text-muted-foreground">Current Stop</span>
+                    <span className="font-medium text-emerald-600">{currentStop}</span>
+                  </div>
+                  <div className="flex justify-between">
                     <span className="text-sm text-muted-foreground">Next Stop</span>
-                    <span className="font-medium">Main Gate</span>
+                    <span className="font-medium text-blue-600">{nextStop}</span>
                   </div>
                 </div>
+                <Button onClick={advanceToNextStop} className="w-full mt-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold flex items-center justify-center gap-2">
+                  <Navigation className="h-4 w-4" />
+                  Arrived at Stop / Advance to Next Stop
+                </Button>
               </CardContent>
             </Card>
 
@@ -688,30 +847,30 @@ const DriverDashboard = () => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Navigation className="h-5 w-5 text-green-500" />
-                  Navigation
+                  Live Navigation Progress
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-3">
-                  <div className="flex items-center gap-3 p-3 bg-primary/5 rounded-lg">
-                    <div className="w-3 h-3 bg-primary rounded-full"></div>
+                  <div className="flex items-center gap-3 p-3 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
+                    <div className="w-3 h-3 bg-emerald-500 rounded-full animate-ping"></div>
                     <div>
-                      <div className="font-medium">Current Location</div>
-                      <div className="text-sm text-muted-foreground">Near Library</div>
+                      <div className="font-semibold text-emerald-700 dark:text-emerald-300">Current Stop</div>
+                      <div className="text-sm text-muted-foreground">{currentStop}</div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 p-3 bg-accent/5 rounded-lg">
-                    <div className="w-3 h-3 bg-accent rounded-full animate-pulse"></div>
+                  <div className="flex items-center gap-3 p-3 bg-blue-500/10 rounded-lg border border-blue-500/20">
+                    <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
                     <div>
-                      <div className="font-medium">Next Stop</div>
-                      <div className="text-sm text-muted-foreground">Main Gate - {eta}</div>
+                      <div className="font-semibold text-blue-700 dark:text-blue-300">Next Upcoming Stop</div>
+                      <div className="text-sm text-muted-foreground">{nextStop} (ETA: {eta})</div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 p-3 bg-muted/5 rounded-lg">
-                    <div className="w-3 h-3 bg-muted-foreground rounded-full"></div>
+                  <div className="flex items-center gap-3 p-3 bg-slate-500/10 rounded-lg border border-slate-500/20">
+                    <div className="w-3 h-3 bg-slate-400 rounded-full"></div>
                     <div>
-                      <div className="font-medium">Final Destination</div>
-                      <div className="text-sm text-muted-foreground">Bus Terminal</div>
+                      <div className="font-semibold">Final Terminal</div>
+                      <div className="text-sm text-muted-foreground">Campus Bus Terminal</div>
                     </div>
                   </div>
                 </div>
@@ -892,7 +1051,7 @@ const DriverDashboard = () => {
                       </div>
                       <p className="text-sm">{incident.description}</p>
                       {!incident.resolved && (
-                        <Button variant="outline" size="sm" className="mt-2">
+                        <Button variant="outline" size="sm" className="mt-2" onClick={() => markIncidentResolved(incident.id)}>
                           Mark Resolved
                         </Button>
                       )}
@@ -1140,6 +1299,39 @@ const DriverDashboard = () => {
           </Card>
         </div>
       )}
+
+      {/* Floating Bottom Slide Navigation Bar for Driver Operations */}
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[94%] max-w-lg">
+        <div className="backdrop-blur-xl bg-slate-900/90 dark:bg-slate-950/95 border border-slate-700/60 text-white rounded-2xl shadow-2xl p-1.5 flex items-center justify-between relative ring-1 ring-white/10">
+          {[
+            { id: 'operations', label: 'Operations', icon: Bus, color: 'text-emerald-400' },
+            { id: 'route', label: 'Route Info', icon: Navigation, color: 'text-blue-400' },
+            { id: 'passengers', label: 'Passengers', icon: Users, color: 'text-purple-400' },
+            { id: 'reports', label: 'Reports', icon: AlertTriangle, color: 'text-amber-400' },
+            { id: 'profile', label: 'Profile', icon: User, color: 'text-indigo-400' }
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex-1 flex flex-col items-center justify-center py-2 px-1 rounded-xl transition-all duration-300 relative ${
+                  isActive 
+                    ? 'text-white bg-white/15 font-bold shadow-lg scale-105 ring-1 ring-white/20' 
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                }`}
+              >
+                <Icon className={`h-5 w-5 mb-1 transition-transform ${isActive ? 'scale-110 ' + tab.color : ''}`} />
+                <span className="text-[11px] font-medium leading-none tracking-tight">{tab.label}</span>
+                {isActive && (
+                  <span className="absolute -top-1 w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 };

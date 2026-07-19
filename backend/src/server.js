@@ -11,6 +11,8 @@ require('dotenv').config();
 const connectDB = require('./utils/database');
 const errorHandler = require('./middleware/errorHandler');
 const notFound = require('./middleware/notFound');
+const jwt = require('jsonwebtoken');
+const User = require('./models/User');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -19,6 +21,13 @@ const routeRoutes = require('./routes/routes');
 const stopRoutes = require('./routes/stops');
 const trackingRoutes = require('./routes/tracking');
 const userRoutes = require('./routes/users');
+const incidentRoutes = require('./routes/incidents');
+const bookingRoutes = require('./routes/bookings');
+const dispatchRoutes = require('./routes/dispatch');
+const ratingRoutes = require('./routes/ratings');
+const favoriteRoutes = require('./routes/favorites');
+const maintenanceRoutes = require('./routes/maintenance');
+const reportRoutes = require('./routes/reports');
 
 const app = express();
 const server = createServer(app);
@@ -26,7 +35,7 @@ const server = createServer(app);
 // Socket.IO setup
 const io = new Server(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN || "http://localhost:8081",
+    origin: process.env.CORS_ORIGIN || "http://localhost:8080",
     methods: ["GET", "POST"]
   }
 });
@@ -48,7 +57,7 @@ app.use(helmet({
 
 // CORS configuration
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || "http://localhost:8081",
+  origin: process.env.CORS_ORIGIN || "http://localhost:8080",
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
@@ -100,10 +109,53 @@ app.use('/api/routes', routeRoutes);
 app.use('/api/stops', stopRoutes);
 app.use('/api/tracking', trackingRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/incidents', incidentRoutes);
+app.use('/api/bookings', bookingRoutes);
+app.use('/api/dispatch', dispatchRoutes);
+app.use('/api/ratings', ratingRoutes);
+app.use('/api/favorites', favoriteRoutes);
+app.use('/api/maintenance', maintenanceRoutes);
+app.use('/api/reports', reportRoutes);
+
+// Socket.IO authentication middleware
+io.use(async (socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.replace('Bearer ', '');
+    if (!token) {
+      return next(new Error('Authentication error: Token required'));
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'jwt_secret_key_123456');
+    const user = await User.findById(decoded.id).select('-password');
+
+    if (!user) {
+      return next(new Error('Authentication error: User not found'));
+    }
+
+    if (!user.isActive) {
+      return next(new Error('Authentication error: User account is inactive'));
+    }
+
+    socket.user = {
+      id: user._id.toString(),
+      username: user.username,
+      role: user.role
+    };
+    next();
+  } catch (error) {
+    console.error('Socket authorization error:', error);
+    next(new Error('Authentication error: Invalid token'));
+  }
+});
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
-  console.log(`User connected: ${socket.id}`);
+  const { id: userId, username, role } = socket.user;
+  console.log(`User connected via socket: ${username} (${role}), ID: ${userId}, Socket ID: ${socket.id}`);
+
+  // Join role & user specific rooms
+  socket.join(`user:${userId}`);
+  socket.join(`role:${role}`);
 
   // Join bus tracking room
   socket.on('join-bus-tracking', (busId) => {
@@ -128,9 +180,63 @@ io.on('connection', (socket) => {
     console.log(`Socket ${socket.id} left route tracking room: route-${routeId}`);
   });
 
+  // Handle high-frequency driver coordinates updates directly via Websocket
+  socket.on('driver-location-update', async (data) => {
+    const { busId, lat, lng, speed, direction, occupancy } = data;
+    try {
+      const Bus = require('./models/Bus');
+      const bus = await Bus.findById(busId);
+      if (bus) {
+        await bus.updateLocation(lat, lng);
+        if (speed !== undefined || direction !== undefined) {
+          await bus.updateStatus(bus.currentStatus, speed, direction);
+        }
+        if (occupancy !== undefined) {
+          bus.occupancy.current = occupancy;
+          await bus.save();
+        }
+
+        // Broadcast to bus subscribers
+        io.to(`bus-${busId}`).emit('bus-location-update', {
+          busId,
+          location: { lat, lng },
+          status: bus.currentStatus,
+          speed: bus.speed,
+          direction: bus.direction,
+          occupancy: bus.occupancy,
+          timestamp: new Date()
+        });
+
+        // Broadcast to route subscribers
+        io.to(`route-${bus.route}`).emit('route-update', {
+          busId,
+          busNumber: bus.busNumber,
+          location: { lat, lng },
+          status: bus.currentStatus,
+          speed: bus.speed,
+          timestamp: new Date()
+        });
+      }
+    } catch (err) {
+      console.error('Error updating bus location via socket event:', err);
+    }
+  });
+
+  // Handle driver incident report broadcast
+  socket.on('driver-incident', (incidentData) => {
+    console.log(`Incident reported by driver:`, incidentData);
+    // Broadcast to all admin sockets in real time
+    io.to('role:admin').emit('incident-report', {
+      ...incidentData,
+      reportedBy: username,
+      userId: userId,
+      timestamp: new Date()
+    });
+  });
+
   // Handle disconnection
   socket.on('disconnect', () => {
-    console.log(`User disconnected: ${socket.id}`);
+    console.log(`User disconnected: ${socket.id} (User: ${username})`);
   });
 });
 

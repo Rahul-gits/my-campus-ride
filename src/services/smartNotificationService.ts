@@ -141,15 +141,15 @@ class SmartNotificationService {
     });
   }
 
-  async createPaymentSuccessNotification(amount: number, passType: string): Promise<Notification> {
+  async createPassActivationNotification(passType: string): Promise<Notification> {
     return this.addNotification({
       type: 'success',
       priority: 'low',
-      title: 'Payment Successful',
-      message: `Your ${passType} payment of $${amount.toFixed(2)} has been processed successfully.`,
-      category: 'payment',
+      title: 'Campus Pass Activated',
+      message: `Your free ${passType} campus shuttle pass has been activated.`,
+      category: 'route',
       actions: [
-        { id: 'receipt', label: 'View Receipt', action: 'view_receipt', type: 'primary' }
+        { id: 'view_pass', label: 'View Pass', action: 'view_pass', type: 'primary' }
       ],
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) // Expire in 24 hours
     });
