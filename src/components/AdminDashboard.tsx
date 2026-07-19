@@ -47,6 +47,7 @@ const AdminDashboard = () => {
   const { notifications, addNotification } = useNotifications();
   const [selectedBus, setSelectedBus] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [activeTab, setActiveTab] = useState("operations");
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddBusModal, setShowAddBusModal] = useState(false);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
@@ -479,16 +480,95 @@ const AdminDashboard = () => {
         ))}
       </div>
 
-             <Tabs defaultValue="fleet" className="space-y-6">
-               <TabsList className="grid w-full grid-cols-7">
-                 <TabsTrigger value="fleet">Fleet Management</TabsTrigger>
-                 <TabsTrigger value="occupancy">Fleet Occupancy</TabsTrigger>
-                 <TabsTrigger value="users">User Management</TabsTrigger>
-                 <TabsTrigger value="routes">Route Management</TabsTrigger>
-                 <TabsTrigger value="analytics">Analytics</TabsTrigger>
-                 <TabsTrigger value="alerts">Alerts</TabsTrigger>
-                 <TabsTrigger value="reports">Reports</TabsTrigger>
-               </TabsList>
+             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <TabsContent value="operations" className="space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-xl bg-card border border-border">
+            <div>
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <Activity className="h-5 w-5 text-emerald-500" />
+                Fleet Operations Control Hub
+              </h2>
+              <p className="text-sm text-muted-foreground">Real-time status, quick command actions, and live system monitoring</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => setShowAddBusModal(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-2">
+                <Plus className="h-4 w-4" />
+                Add Bus
+              </Button>
+              <Button onClick={() => setShowAddUserModal(true)} variant="outline" className="flex items-center gap-2">
+                <UserPlus className="h-4 w-4" />
+                Add Staff/User
+              </Button>
+              <Button onClick={() => handleGenerateReport('summary')} variant="outline" className="flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                System Report
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Bus className="h-5 w-5 text-blue-500" />
+                  Active Fleet Live Telemetry
+                </CardTitle>
+                <CardDescription>Live coordinates and driver occupancy updates</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-3">
+                  {fleetData.slice(0, 4).map((bus) => (
+                    <div key={bus.id} className="p-3 border rounded-lg flex items-center justify-between bg-accent/5">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-primary/10 rounded-lg">
+                          <Bus className="h-5 w-5 text-primary" />
+                        </div>
+                        <div>
+                          <div className="font-semibold">{bus.busNumber} ({bus.route})</div>
+                          <div className="text-xs text-muted-foreground">Driver: {bus.driver} • Location: {bus.location}</div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <Badge variant={bus.status === 'active' ? 'success' : 'warning'}>
+                          {bus.status.toUpperCase()}
+                        </Badge>
+                        <div className="text-xs text-muted-foreground mt-1">Pax: {bus.passengers}/{bus.capacity}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-amber-500" />
+                  Recent System Incidents & Alerts
+                </CardTitle>
+                <CardDescription>Real-time notifications from drivers & fleet devices</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-3">
+                  {alerts.map((alert) => (
+                    <div key={alert.id} className="p-3 border rounded-lg flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        {getAlertIcon(alert.type)}
+                        <div>
+                          <div className="text-sm font-medium">{alert.message}</div>
+                          <div className="text-xs text-muted-foreground">{alert.time}</div>
+                        </div>
+                      </div>
+                      <Badge variant={alert.priority === 'high' ? 'destructive' : 'secondary'}>
+                        {alert.priority}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
 
         <TabsContent value="fleet" className="space-y-6">
           {/* Notification Alerts */}
@@ -1003,12 +1083,12 @@ const AdminDashboard = () => {
           </Card>
         </TabsContent>
 
-        <TabsContent value="alerts" className="space-y-6">
+        <TabsContent value="incidents" className="space-y-6">
           <div className="space-y-4">
-            <h2 className="text-xl font-semibold">System Alerts</h2>
+            <h2 className="text-xl font-semibold">System Incidents & Alerts</h2>
             <div className="space-y-3">
               {alerts.map((alert) => (
-                <Card key={alert.id} className={`${alert.priority === 'high' ? 'border-red-200 bg-red-50' : ''}`}>
+                <Card key={alert.id} className={`${alert.priority === 'high' ? 'border-red-200 bg-red-50 dark:bg-red-950/20' : ''}`}>
                   <CardContent className="p-4">
                     <div className="flex items-start gap-3">
                       {getAlertIcon(alert.type)}
@@ -1022,11 +1102,22 @@ const AdminDashboard = () => {
                         <p className="text-sm text-muted-foreground">{alert.time}</p>
                       </div>
                       <div className="flex gap-2">
-                        <Button variant="outline" size="sm">
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => {
+                            setAlerts(prev => prev.filter(a => a.id !== alert.id));
+                            addNotification({
+                              type: 'success',
+                              priority: 'low',
+                              title: 'Incident Resolved',
+                              message: 'Incident marked as resolved by Admin.',
+                              category: 'system',
+                              role: 'admin'
+                            });
+                          }}
+                        >
                           Resolve
-                        </Button>
-                        <Button variant="ghost" size="sm">
-                          <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </div>
                     </div>
@@ -1264,8 +1355,35 @@ const AdminDashboard = () => {
               </div>
             </CardContent>
           </Card>
+      {/* Floating Bottom Slide Bar Navigation for Admin */}
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[94%] max-w-xl bg-background/85 backdrop-blur-xl border border-border/80 shadow-2xl rounded-full p-2">
+        <div className="grid grid-cols-5 gap-1 text-center">
+          {[
+            { id: "operations", label: "Ops Hub", icon: Activity, color: "text-emerald-500" },
+            { id: "fleet", label: "Fleet", icon: Bus, color: "text-blue-500" },
+            { id: "users", label: "Users", icon: Users, color: "text-purple-500" },
+            { id: "routes", label: "Routes", icon: Route, color: "text-amber-500" },
+            { id: "incidents", label: "Incidents", icon: AlertTriangle, color: "text-red-500" },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`relative flex flex-col items-center justify-center py-2 px-3 rounded-full transition-all duration-300 ${
+                  isActive
+                    ? "bg-primary text-primary-foreground shadow-lg scale-105 font-semibold"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                }`}
+              >
+                <Icon className={`h-5 w-5 ${isActive ? "text-primary-foreground" : tab.color}`} />
+                <span className="text-[11px] mt-0.5 font-medium">{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
-      )}
+      </div>
     </div>
   );
 };
