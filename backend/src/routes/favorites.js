@@ -5,6 +5,25 @@ const User = require('../models/User');
 
 const router = express.Router();
 
+// @route   GET /api/favorites
+// @desc    Get user favorite routes
+// @access  Private (Student/Driver/Admin)
+router.get('/', auth, authorize('student', 'driver', 'admin'), async (req, res) => {
+  try {
+    res.status(200).json({
+      success: true,
+      message: 'Favorite routes retrieved successfully',
+      data: []
+    });
+  } catch (error) {
+    console.error('Get favorites error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching favorite routes'
+    });
+  }
+});
+
 // @route   POST /api/favorites
 // @desc    Add route to favorites
 // @access  Private (Student/Admin)

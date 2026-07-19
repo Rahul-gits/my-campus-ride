@@ -1,4 +1,5 @@
 import React, { useState, useEffect, createContext, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Bell, X, CheckCircle, AlertTriangle, Info, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -389,6 +390,7 @@ export const NotificationDropdown: React.FC<{
   onClose: () => void;
   className?: string;
 }> = ({ isOpen, onClose, className = '' }) => {
+  const navigate = useNavigate();
   const {
     notifications,
     unreadCount,
@@ -409,20 +411,16 @@ export const NotificationDropdown: React.FC<{
     
     switch (action) {
       case 'track_bus':
-        // Navigate to bus tracking
-        window.location.href = '/dashboard/student?tab=tracking';
+        navigate('/dashboard/student');
         break;
       case 'view_route':
-        // Navigate to route details
-        window.location.href = '/dashboard/student?tab=routes';
+        navigate('/dashboard/student');
         break;
       case 'view_receipt':
-        // Navigate to payment history
-        window.location.href = '/dashboard/student?tab=payments';
+        navigate('/dashboard/student');
         break;
       case 'respond_emergency':
-        // Navigate to emergency page
-        window.location.href = '/emergency';
+        navigate('/alerts');
         break;
       case 'dismiss':
         deleteNotification(notification.id);
@@ -451,13 +449,14 @@ export const NotificationDropdown: React.FC<{
                 onClick={markAllAsRead}
                 className="text-xs"
               >
-                Mark All Read
+                Mark all as read
               </Button>
             )}
             <Button
               variant="ghost"
               size="sm"
               onClick={onClose}
+              className="h-6 w-6 p-0"
             >
               <X className="h-4 w-4" />
             </Button>
@@ -465,13 +464,14 @@ export const NotificationDropdown: React.FC<{
         </div>
       </div>
 
-      <div className="max-h-96 overflow-y-auto">
+      <div className="max-h-96 overflow-y-auto p-4 space-y-3">
         {notifications.length === 0 ? (
-          <div className="p-4 text-center text-gray-500">
-            No notifications
+          <div className="text-center py-8 text-gray-500">
+            <Bell className="h-8 w-8 mx-auto mb-2 opacity-50" />
+            <p>No notifications</p>
           </div>
         ) : (
-          <div className="space-y-2 p-2">
+          <div className="space-y-4">
             {/* Critical Notifications */}
             {criticalNotifications.length > 0 && (
               <div className="space-y-2">
@@ -539,7 +539,7 @@ export const NotificationDropdown: React.FC<{
           className="w-full"
           onClick={() => {
             onClose();
-            window.location.href = '/alerts';
+            navigate('/alerts');
           }}
         >
           View All Notifications

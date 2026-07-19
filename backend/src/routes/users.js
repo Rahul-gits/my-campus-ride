@@ -8,8 +8,8 @@ const router = express.Router();
 
 // @route   GET /api/users
 // @desc    Get all users
-// @access  Private (Admin only)
-router.get('/', auth, authorize('admin'), async (req, res) => {
+// @access  Private (Admin/Driver/Student)
+router.get('/', auth, authorize('admin', 'driver', 'student'), async (req, res) => {
   try {
     const { role, active } = req.query;
     const filter = {};
@@ -37,8 +37,8 @@ router.get('/', auth, authorize('admin'), async (req, res) => {
 
 // @route   GET /api/users/drivers
 // @desc    Get all drivers
-// @access  Private (Admin only)
-router.get('/drivers', auth, authorize('admin'), async (req, res) => {
+// @access  Private (Admin/Driver/Student)
+router.get('/drivers', auth, authorize('admin', 'driver', 'student'), async (req, res) => {
   try {
     const drivers = await User.find({ 
       role: 'driver',
