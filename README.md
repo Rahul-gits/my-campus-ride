@@ -1,4 +1,6 @@
-🚌 Campus Ride Management System
+# 🚌 Campus Ride Management System
+
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 A modern, intelligent transportation management platform for educational campuses that enables real-time bus tracking, route optimization, digital payments, and advanced analytics for students, drivers, and administrators.
 
@@ -498,5 +500,11 @@ If you find this project useful:
 For collaborations, improvements, or queries:
 
 📧 rahulgunda206@gmail.com
+
+## 📄 License
+
+This project is licensed under the **Apache License 2.0**.
+
+See the [LICENSE](LICENSE) file and [NOTICE](NOTICE) file for full details.
 
 Special thanks to all contributors and developers improving campus transportation technology.
