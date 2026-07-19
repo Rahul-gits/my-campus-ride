@@ -79,6 +79,40 @@ const App = () => (
                 <Route path="alerts" element={<NotificationCenter />} />
               </Route>
 
+              {/* Global Feature Routes */}
+              <Route
+                path="/alerts"
+                element={
+                  <ProtectedRoute roles={["student", "driver", "admin"]}>
+                    <DashboardLayout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<NotificationCenter />} />
+              </Route>
+
+              <Route
+                path="/route-optimizer"
+                element={
+                  <ProtectedRoute roles={["student", "driver", "admin"]}>
+                    <DashboardLayout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<SmartRouteOptimizer />} />
+              </Route>
+
+              <Route
+                path="/analytics"
+                element={
+                  <ProtectedRoute roles={["student", "driver", "admin"]}>
+                    <DashboardLayout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<AIAnalyticsDashboard />} />
+              </Route>
+
               {/* Catch-all 404 Route */}
               <Route path="*" element={<NotFound />} />
             </Routes>
