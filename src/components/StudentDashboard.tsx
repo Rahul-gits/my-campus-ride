@@ -25,7 +25,8 @@ import {
   Calendar,
   TrendingUp,
   Award,
-  Bookmark
+  Bookmark,
+  User
 } from "lucide-react";
 import MapboxMap from "@/components/MapboxMap";
 import { Button as UIButton } from "@/components/ui/button";
@@ -36,6 +37,7 @@ import { useNotifications, NotificationAlert } from "@/components/NotificationSy
 const StudentDashboard = () => {
   const { user } = useAuth();
   const { notifications, addNotification } = useNotifications();
+  const [activeTab, setActiveTab] = useState("tracking");
   const [currentTime, setCurrentTime] = useState(new Date());
   const [selectedBus, setSelectedBus] = useState<BusLocation | null>(null);
   const [selectedStop, setSelectedStop] = useState<RouteStop | null>(null);
@@ -245,15 +247,8 @@ const StudentDashboard = () => {
   };
 
   return (
-    <div className="space-y-6 p-6">
-
-      <Tabs defaultValue="tracking" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="tracking">Live Tracking</TabsTrigger>
-          <TabsTrigger value="favorites">Favorites</TabsTrigger>
-          <TabsTrigger value="history">Ride History</TabsTrigger>
-          <TabsTrigger value="profile">Profile</TabsTrigger>
-        </TabsList>
+    <div className="space-y-6 p-6 pb-24">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
 
                <TabsContent value="tracking" className="space-y-6">
                  {/* Notification Alerts */}
@@ -623,6 +618,35 @@ const StudentDashboard = () => {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Floating Bottom Slide Bar Navigation for Student */}
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md bg-background/85 backdrop-blur-xl border border-border/80 shadow-2xl rounded-full p-2">
+        <div className="grid grid-cols-4 gap-1 text-center">
+          {[
+            { id: "tracking", label: "Tracking", icon: Navigation, color: "text-emerald-500" },
+            { id: "favorites", label: "Favorites", icon: Heart, color: "text-rose-500" },
+            { id: "history", label: "History", icon: History, color: "text-amber-500" },
+            { id: "profile", label: "Profile", icon: User, color: "text-blue-500" },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`relative flex flex-col items-center justify-center py-2 px-3 rounded-full transition-all duration-300 ${
+                  isActive
+                    ? "bg-primary text-primary-foreground shadow-lg scale-105 font-semibold"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                }`}
+              >
+                <Icon className={`h-5 w-5 ${isActive ? "text-primary-foreground" : tab.color}`} />
+                <span className="text-[11px] mt-0.5 font-medium">{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 };
